@@ -8,6 +8,12 @@ enum AttackPhase {
 	RECOVERY,
 }
 
+enum AttackKind {
+	NORMAL,
+	AIR,
+	DASH,
+}
+
 signal health_changed(current_health: int, max_health: int)
 signal body_parts_changed(summary: String)
 signal stats_changed(attack_damage: int, attack_speed_bonus: int)
@@ -46,6 +52,7 @@ var _coyote_timer: float = 0.0
 var _jump_buffer_timer: float = 0.0
 var _attack_timer: float = 0.0
 var _attack_phase: AttackPhase = AttackPhase.NONE
+var _attack_kind: AttackKind = AttackKind.NORMAL
 var _attack_cooldown_timer: float = 0.0
 var _combo_reset_timer: float = 0.0
 var _combo_step: int = 0
@@ -155,7 +162,12 @@ func _handle_attack(delta: float) -> void:
 		if _attack_phase != AttackPhase.NONE and _combo_step < 3:
 			_combo_queued = true
 		elif _attack_phase == AttackPhase.NONE and _attack_cooldown_timer <= 0.0:
-			_start_attack((_combo_step % 3) + 1)
+			if _dash_timer > 0.0:
+				_start_attack(1, AttackKind.DASH)
+			elif not is_on_floor():
+				_start_attack(1, AttackKind.AIR)
+			else:
+				_start_attack((_combo_step % 3) + 1, AttackKind.NORMAL)
 
 	if _attack_phase == AttackPhase.NONE:
 		return
@@ -174,15 +186,24 @@ func _handle_attack(delta: float) -> void:
 				_finish_attack()
 
 
-func _start_attack(step: int) -> void:
+func _start_attack(step: int, kind: AttackKind = AttackKind.NORMAL) -> void:
 	_combo_step = step
+	_attack_kind = kind
 	_attack_phase = AttackPhase.WINDUP
 	_attack_timer = _get_windup_duration(step) / _effective_attack_speed()
 	_hit_targets.clear()
 	_slash_visual.visible = false
 	_slash_visual.scale = Vector2(0.9 + step * 0.12, 0.82 + step * 0.08)
 	_slash_visual.color = Color(1.0, 0.82 - step * 0.08, 0.2, 0.78)
-	_attack_area.position.x = 48.0 + step * 5.0
+	match _attack_kind:
+		AttackKind.AIR:
+			_attack_area.position = Vector2(52, 18)
+			_slash_visual.scale = Vector2(1.1, 1.2)
+		AttackKind.DASH:
+			_attack_area.position = Vector2(72, 0)
+			_slash_visual.scale = Vector2(1.45, 0.85)
+		_:
+			_attack_area.position = Vector2(48.0 + step * 5.0, 0)
 	_play_sword_windup(step)
 
 
@@ -191,6 +212,10 @@ func _begin_active_attack() -> void:
 	_attack_timer = _get_active_duration(_combo_step) / _effective_attack_speed()
 	_slash_visual.visible = true
 	_play_sword_swing(_combo_step)
+	if _attack_kind == AttackKind.AIR:
+		velocity.y = 220.0
+	elif _attack_kind == AttackKind.DASH:
+		velocity.x = _dash_direction * dash_speed * _dash_multiplier * 1.1
 	_damage_overlapping_enemies()
 
 
@@ -205,7 +230,7 @@ func _finish_attack() -> void:
 	_attack_phase = AttackPhase.NONE
 	if _combo_queued and _combo_step < 3:
 		_combo_queued = false
-		_start_attack(_combo_step + 1)
+		_start_attack(_combo_step + 1, AttackKind.NORMAL)
 	else:
 		_combo_queued = false
 		_attack_cooldown_timer = (0.1 if _combo_step < 3 else 0.24) / _effective_attack_speed()
@@ -228,12 +253,20 @@ func _damage_overlapping_enemies() -> void:
 	for target_id in closest_by_actor:
 		var part: BodyPart = closest_by_actor[target_id]["part"]
 		var base_damage := attack_damage * (2 if _combo_step == 3 else 1)
+		if _attack_kind == AttackKind.AIR:
+			base_damage = roundi(base_damage * 1.35)
+		elif _attack_kind == AttackKind.DASH:
+			base_damage = roundi(base_damage * 1.6)
 		var damage := maxi(1, roundi(base_damage * _attack_damage_multiplier))
 		if part.receive_damage(damage, global_position):
 			_hit_targets[target_id] = true
 
 
 func _get_windup_duration(step: int) -> float:
+	if _attack_kind == AttackKind.AIR:
+		return 0.1
+	if _attack_kind == AttackKind.DASH:
+		return 0.07
 	match step:
 		1:
 			return 0.12
@@ -244,6 +277,10 @@ func _get_windup_duration(step: int) -> float:
 
 
 func _get_active_duration(step: int) -> float:
+	if _attack_kind == AttackKind.AIR:
+		return 0.16
+	if _attack_kind == AttackKind.DASH:
+		return 0.14
 	match step:
 		1:
 			return 0.11
@@ -254,6 +291,10 @@ func _get_active_duration(step: int) -> float:
 
 
 func _get_recovery_duration(step: int) -> float:
+	if _attack_kind == AttackKind.AIR:
+		return 0.2
+	if _attack_kind == AttackKind.DASH:
+		return 0.18
 	match step:
 		1:
 			return 0.14
@@ -292,6 +333,7 @@ func start_dash() -> void:
 func _update_dash(delta: float) -> void:
 	_dash_timer = maxf(_dash_timer - delta, 0.0)
 	velocity = Vector2(_dash_direction * dash_speed * _dash_multiplier, 0.0)
+	_handle_attack(delta)
 	if _dash_timer <= 0.0:
 		_dash_visual.visible = false
 		_set_parts_tint(Color.WHITE)
@@ -316,6 +358,10 @@ func is_dash_invulnerable() -> bool:
 
 func is_attack_recovering() -> bool:
 	return _attack_phase == AttackPhase.RECOVERY
+
+
+func get_attack_kind() -> AttackKind:
+	return _attack_kind
 
 
 func on_body_part_damaged(part: BodyPart, _amount: int, source_position: Vector2) -> void:
@@ -443,6 +489,10 @@ func _play_sword_windup(step: int) -> void:
 	if _sword_tween and _sword_tween.is_valid():
 		_sword_tween.kill()
 	var start_angle := deg_to_rad(-72.0 if step != 2 else 58.0)
+	if _attack_kind == AttackKind.AIR:
+		start_angle = deg_to_rad(-25.0)
+	elif _attack_kind == AttackKind.DASH:
+		start_angle = deg_to_rad(-12.0)
 	if step == 3:
 		start_angle = deg_to_rad(-105.0)
 	_sword_tween = create_tween()
@@ -458,6 +508,10 @@ func _play_sword_swing(step: int) -> void:
 	if _sword_tween and _sword_tween.is_valid():
 		_sword_tween.kill()
 	var end_angle := deg_to_rad(68.0 if step != 2 else -66.0)
+	if _attack_kind == AttackKind.AIR:
+		end_angle = deg_to_rad(112.0)
+	elif _attack_kind == AttackKind.DASH:
+		end_angle = deg_to_rad(8.0)
 	if step == 3:
 		end_angle = deg_to_rad(105.0)
 	_sword_tween = create_tween()
@@ -486,35 +540,35 @@ func _effective_attack_speed() -> float:
 
 
 func _animate_body_parts() -> void:
-	var moving := absf(velocity.x) > 20.0 and is_on_floor()
+	var moving := absf(velocity.x) > 25.0 and is_on_floor()
 	var airborne := not is_on_floor()
-	var walk_phase := _animation_time * (9.0 + absf(velocity.x) * 0.012)
-	var idle_bob := sin(_animation_time * 2.4) * 1.2
-	var swing := sin(walk_phase)
+	var phase := _animation_time * 8.5
+	var step := sin(phase)
+	var breathe := sin(_animation_time * 2.2)
 
-	_animate_part("torso", Vector2(0, idle_bob), swing * 0.025 if moving else 0.0)
-	_animate_part("head", Vector2(0, idle_bob * 1.25), -swing * 0.035 if moving else sin(_animation_time * 1.7) * 0.025)
+	_animate_part("torso", Vector2(0, breathe * 0.7), step * 0.02 if moving else 0.0)
+	_animate_part("head", Vector2(0, breathe * 0.85), -step * 0.025 if moving else 0.0)
 
 	if airborne:
-		_animate_part("left_arm", Vector2(0, -2), deg_to_rad(-25.0))
-		_animate_part("right_arm", Vector2(0, -2), deg_to_rad(25.0))
-		_animate_part("left_leg", Vector2(0, -2), deg_to_rad(18.0))
-		_animate_part("right_leg", Vector2(0, 1), deg_to_rad(-14.0))
+		_animate_part("left_arm", Vector2(1, -2), deg_to_rad(-12.0))
+		_animate_part("right_arm", Vector2(-1, -2), deg_to_rad(12.0))
+		_animate_part("left_leg", Vector2(1, -2), deg_to_rad(8.0))
+		_animate_part("right_leg", Vector2(-1, 1), deg_to_rad(-8.0))
 	elif moving:
-		_animate_part("left_arm", Vector2(0, idle_bob), swing * 0.55)
-		_animate_part("right_arm", Vector2(0, idle_bob), -swing * 0.55)
-		_animate_part("left_leg", Vector2(0, 0), -swing * 0.48)
-		_animate_part("right_leg", Vector2(0, 0), swing * 0.48)
+		_animate_part("left_arm", Vector2(step * 1.5, 0), step * 0.24)
+		_animate_part("right_arm", Vector2(-step * 1.5, 0), -step * 0.24)
+		_animate_part("left_leg", Vector2(step * 1.2, absf(step) * -1.0), -step * 0.2)
+		_animate_part("right_leg", Vector2(-step * 1.2, absf(step) * -1.0), step * 0.2)
 	else:
-		_animate_part("left_arm", Vector2(0, idle_bob), sin(_animation_time * 2.0) * 0.06)
-		_animate_part("right_arm", Vector2(0, idle_bob), -sin(_animation_time * 2.0) * 0.06)
+		_animate_part("left_arm", Vector2.ZERO, breathe * 0.025)
+		_animate_part("right_arm", Vector2.ZERO, -breathe * 0.025)
 		_animate_part("left_leg", Vector2.ZERO, 0.0)
 		_animate_part("right_leg", Vector2.ZERO, 0.0)
 
 	if _attack_phase != AttackPhase.NONE:
 		var attack_arm: BodyPart = _parts.get("right_arm")
 		if is_instance_valid(attack_arm) and attack_arm.health > 0:
-			attack_arm.animate_transform(Vector2(3, -4), _sword_pivot.rotation * 0.45)
+			attack_arm.animate_transform(Vector2(2, -2), _sword_pivot.rotation * 0.3, 0.45)
 
 
 func _animate_part(id: StringName, offset: Vector2, angle: float) -> void:

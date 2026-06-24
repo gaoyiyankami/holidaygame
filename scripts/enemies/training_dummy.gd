@@ -279,23 +279,23 @@ func _set_parts_tint(color: Color) -> void:
 
 func _animate_body_parts() -> void:
 	var moving := absf(velocity.x) > 10.0 and is_on_floor()
-	var phase := _animation_time * (7.0 + absf(velocity.x) * 0.015)
-	var swing := sin(phase)
-	var bob := sin(_animation_time * 2.0) * 1.0
+	var phase := _animation_time * 7.0
+	var step := sin(phase)
+	var breathe := sin(_animation_time * 1.9)
 
-	_animate_part("torso", Vector2(0, bob), swing * 0.025 if moving else 0.0)
-	_animate_part("head", Vector2(0, bob * 1.2), -swing * 0.03 if moving else sin(_animation_time * 1.5) * 0.03)
-	_animate_part("left_leg", Vector2.ZERO, -swing * 0.45 if moving else 0.0)
-	_animate_part("right_leg", Vector2.ZERO, swing * 0.45 if moving else 0.0)
-	_animate_part("left_arm", Vector2(0, bob), swing * 0.5 if moving else sin(_animation_time * 1.8) * 0.08)
-	_animate_part("right_arm", Vector2(0, bob), -swing * 0.5 if moving else -sin(_animation_time * 1.8) * 0.08)
+	_animate_part("torso", Vector2(0, breathe * 0.6), step * 0.018 if moving else 0.0)
+	_animate_part("head", Vector2(0, breathe * 0.75), -step * 0.02 if moving else 0.0)
+	_animate_part("left_leg", Vector2(step, -absf(step) * 0.8), -step * 0.18 if moving else 0.0)
+	_animate_part("right_leg", Vector2(-step, -absf(step) * 0.8), step * 0.18 if moving else 0.0)
+	_animate_part("left_arm", Vector2(step, 0), step * 0.2 if moving else breathe * 0.02)
+	_animate_part("right_arm", Vector2(-step, 0), -step * 0.2 if moving else -breathe * 0.02)
 
 	if _state == State.WINDUP:
-		_animate_part("right_arm", Vector2(-2, -4), deg_to_rad(-55.0))
+		_animate_part("right_arm", Vector2(-2, -3), deg_to_rad(-32.0))
 	elif _state == State.ATTACK:
-		_animate_part("right_arm", Vector2(5, 0), deg_to_rad(70.0))
+		_animate_part("right_arm", Vector2(4, 0), deg_to_rad(42.0))
 	elif _state == State.RECOVERY:
-		_animate_part("right_arm", Vector2(1, 0), deg_to_rad(20.0))
+		_animate_part("right_arm", Vector2(1, 0), deg_to_rad(12.0))
 
 
 func _animate_part(id: StringName, offset: Vector2, angle: float) -> void:

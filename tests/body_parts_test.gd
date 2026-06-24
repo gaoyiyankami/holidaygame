@@ -39,7 +39,8 @@ func _ready() -> void:
 
 	player.velocity.x = 180.0
 	player.set("_animation_time", 0.7)
-	player.call("_animate_body_parts")
+	for index in range(8):
+		player.call("_animate_body_parts")
 	var animated_part_count := 0
 	for node in player_parts:
 		var part := node as BodyPart
@@ -59,24 +60,50 @@ func _ready() -> void:
 	var room_walls_cover_height := left_wall_shape.size.y >= 720.0 \
 		and right_wall_shape.size.y >= 720.0
 
-	print("Body parts test: six=%s independent=%s hidden=%s debuff=%s parts_animated=%s windup_safe=%s sword_hit=%s sword_animation=%s recovery=%s dash_iframe=%s walls=%s" % [
+	enemy.position = Vector2(1100, 602)
+	await get_tree().create_timer(0.3).timeout
+	var special_enemy_scene := load("res://scenes/enemies/training_dummy.tscn") as PackedScene
+	var air_enemy := special_enemy_scene.instantiate() as TrainingDummy
+	$Main.add_child(air_enemy)
+	air_enemy.set_physics_process(false)
+	air_enemy.position = player.position + Vector2(58, 18)
+	await get_tree().physics_frame
+	var air_before := _total_health(air_enemy.get_node("Visual/Parts").get_children())
+	player.call("_start_attack", 1, 1)
+	await get_tree().create_timer(0.22).timeout
+	var air_attack_worked := player.get_attack_kind() == 1 \
+		and _total_health(air_enemy.get_node("Visual/Parts").get_children()) < air_before
+
+	await get_tree().create_timer(0.35).timeout
+	air_enemy.position = Vector2(1100, 602)
+	var dash_enemy := special_enemy_scene.instantiate() as TrainingDummy
+	$Main.add_child(dash_enemy)
+	dash_enemy.set_physics_process(false)
+	dash_enemy.position = player.position + Vector2(82, 0)
+	await get_tree().physics_frame
+	var dash_before := _total_health(dash_enemy.get_node("Visual/Parts").get_children())
+	player.set("_dash_cooldown_timer", 0.0)
+	player.start_dash()
+	player.call("_start_attack", 1, 2)
+	await get_tree().create_timer(0.16).timeout
+	var dash_attack_worked := player.get_attack_kind() == 2 \
+		and _total_health(dash_enemy.get_node("Visual/Parts").get_children()) < dash_before
+
+	print("Body parts test: base=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s" % [
 		six_parts_created,
-		independent_health,
-		destroyed_part_hidden,
-		arm_debuff_applied,
 		parts_animated,
-		no_damage_during_windup,
-		sword_hit_part,
-		sword_animated,
-		attack_has_recovery,
+		no_damage_during_windup and sword_hit_part and sword_animated and attack_has_recovery,
 		dash_iframe_worked,
 		room_walls_cover_height,
+		air_attack_worked,
+		dash_attack_worked,
 	])
 
 	var passed := six_parts_created and independent_health and destroyed_part_hidden \
 		and arm_debuff_applied and parts_animated and no_damage_during_windup \
 		and sword_hit_part and sword_animated and attack_has_recovery \
-		and dash_iframe_worked and room_walls_cover_height
+		and dash_iframe_worked and room_walls_cover_height \
+		and air_attack_worked and dash_attack_worked
 	get_tree().quit(0 if passed else 1)
 
 

@@ -95,11 +95,11 @@ func reset_tint() -> void:
 		_visual.modulate = Color.WHITE
 
 
-func animate_transform(offset: Vector2, angle: float) -> void:
+func animate_transform(offset: Vector2, angle: float, smoothness: float = 0.28) -> void:
 	if health <= 0:
 		return
-	position = rest_position + offset
-	rotation = rest_rotation + angle
+	position = position.lerp(rest_position + offset, smoothness)
+	rotation = lerp_angle(rotation, rest_rotation + angle, smoothness)
 
 
 func _flash() -> void:
