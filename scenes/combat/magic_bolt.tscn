@@ -7,7 +7,7 @@ size = Vector2(34, 16)
 
 [node name="MagicBolt" type="Area2D"]
 collision_layer = 0
-collision_mask = 8
+collision_mask = 24
 script = ExtResource("1_bolt")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]

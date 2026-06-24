@@ -2,7 +2,6 @@ extends Node2D
 
 const ENEMY_SCENE := preload("res://scenes/enemies/training_dummy.tscn")
 const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
-const NETWORK_PORT := 7000
 const MAX_CLIENTS := 7
 
 var _wave: int = 1
@@ -24,9 +23,13 @@ var _network_players: Dictionary = {}
 @onready var _health_button: Button = $UI/UpgradePanel/Margin/VBox/Choices/HealthButton
 @onready var _network_panel: PanelContainer = $UI/NetworkPanel
 @onready var _address_input: LineEdit = $UI/NetworkPanel/VBox/AddressInput
+@onready var _port_input: SpinBox = $UI/NetworkPanel/VBox/PortRow/PortInput
 @onready var _host_button: Button = $UI/NetworkPanel/VBox/Buttons/HostButton
 @onready var _join_button: Button = $UI/NetworkPanel/VBox/Buttons/JoinButton
 @onready var _network_status: Label = $UI/NetworkPanel/VBox/NetworkStatus
+@onready var _start_menu: PanelContainer = $UI/StartMenu
+@onready var _single_button: Button = $UI/StartMenu/Margin/VBox/SingleButton
+@onready var _multi_button: Button = $UI/StartMenu/Margin/VBox/MultiButton
 
 
 func _ready() -> void:
@@ -38,6 +41,8 @@ func _ready() -> void:
 	_attack_button.pressed.connect(_choose_attack_upgrade)
 	_speed_button.pressed.connect(_choose_speed_upgrade)
 	_health_button.pressed.connect(_choose_health_upgrade)
+	_single_button.pressed.connect(_start_single_player)
+	_multi_button.pressed.connect(_show_multiplayer_menu)
 	_host_button.pressed.connect(_host_game)
 	_join_button.pressed.connect(_join_game)
 	multiplayer.peer_connected.connect(_on_peer_connected)
@@ -53,18 +58,38 @@ func _ready() -> void:
 
 	_current_enemy = $TrainingDummy as TrainingDummy
 	_connect_enemy(_current_enemy)
+	_player.set_controls_enabled(false)
+	_network_panel.visible = false
+
+
+func _start_single_player() -> void:
+	_start_menu.visible = false
+	_network_panel.visible = false
+	_player.set_controls_enabled(true)
+
+
+func _show_multiplayer_menu() -> void:
+	_start_menu.visible = false
+	_network_panel.visible = true
+
+
+func _selected_port() -> int:
+	return int(_port_input.value)
 
 
 func _host_game() -> void:
 	var peer := ENetMultiplayerPeer.new()
-	var error := peer.create_server(NETWORK_PORT, MAX_CLIENTS)
+	var port := _selected_port()
+	var error := peer.create_server(port, MAX_CLIENTS)
 	if error != OK:
 		_network_status.text = "创建主机失败：%s" % error_string(error)
 		return
 	multiplayer.multiplayer_peer = peer
 	_prepare_existing_player_for_network()
 	_network_players[1] = true
-	_network_status.text = "主机已开启，端口 %d（最多 8 人）" % NETWORK_PORT
+	_network_status.text = "主机已开启，端口 %d（最多 8 人）" % port
+	_network_panel.visible = false
+	_player.set_controls_enabled(true)
 	_host_button.disabled = true
 	_join_button.disabled = true
 
@@ -74,13 +99,14 @@ func _join_game() -> void:
 	if address.is_empty():
 		address = "127.0.0.1"
 	var peer := ENetMultiplayerPeer.new()
-	var error := peer.create_client(address, NETWORK_PORT)
+	var port := _selected_port()
+	var error := peer.create_client(address, port)
 	if error != OK:
 		_network_status.text = "连接失败：%s" % error_string(error)
 		return
 	multiplayer.multiplayer_peer = peer
 	_prepare_existing_player_for_network()
-	_network_status.text = "正在连接 %s:%d……" % [address, NETWORK_PORT]
+	_network_status.text = "正在连接 %s:%d……" % [address, port]
 	_host_button.disabled = true
 	_join_button.disabled = true
 
@@ -93,6 +119,7 @@ func _prepare_existing_player_for_network() -> void:
 
 func _on_connected_to_server() -> void:
 	_network_status.text = "连接成功，玩家编号 %d" % multiplayer.get_unique_id()
+	_network_panel.visible = false
 
 
 func _on_connection_failed() -> void:

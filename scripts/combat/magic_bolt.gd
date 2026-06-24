@@ -6,6 +6,7 @@ extends Area2D
 @export var lifetime: float = 1.4
 
 var direction: float = 1.0
+var caster: Node
 
 
 func _ready() -> void:
@@ -22,5 +23,14 @@ func _physics_process(delta: float) -> void:
 func _on_area_entered(area: Area2D) -> void:
 	if area is BodyPart:
 		var part := area as BodyPart
-		if part.receive_damage(damage, global_position):
+		if part.actor == caster:
+			return
+		if part.actor is Player and multiplayer.has_multiplayer_peer():
+			(part.actor as Player).receive_network_part_damage.rpc(
+				part.part_id,
+				damage,
+				global_position
+			)
+			queue_free()
+		elif part.receive_damage(damage, global_position):
 			queue_free()

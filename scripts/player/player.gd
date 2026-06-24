@@ -277,6 +277,8 @@ func _damage_overlapping_enemies() -> void:
 		if not (area is BodyPart):
 			continue
 		var part := area as BodyPart
+		if part.actor == self:
+			continue
 		var target_id := part.actor.get_instance_id()
 		if _hit_targets.has(target_id):
 			continue
@@ -296,8 +298,30 @@ func _damage_overlapping_enemies() -> void:
 		elif _attack_kind == AttackKind.LOW:
 			base_damage = roundi(base_damage * 1.2)
 		var damage := maxi(1, roundi(base_damage * _attack_damage_multiplier))
-		if part.receive_damage(damage, global_position):
+		if _apply_damage_to_part(part, damage):
 			_hit_targets[target_id] = true
+
+
+func _apply_damage_to_part(part: BodyPart, damage: int) -> bool:
+	if part.actor is Player and multiplayer.has_multiplayer_peer():
+		(part.actor as Player).receive_network_part_damage.rpc(
+			part.part_id,
+			damage,
+			global_position
+		)
+		return true
+	return part.receive_damage(damage, global_position)
+
+
+@rpc("any_peer", "call_local", "reliable")
+func receive_network_part_damage(
+	part_id: StringName,
+	damage: int,
+	source_position: Vector2
+) -> void:
+	var part: BodyPart = _parts.get(part_id)
+	if is_instance_valid(part):
+		part.receive_damage(damage, source_position)
 
 
 func configure_network_authority(peer_id: int) -> void:
@@ -478,6 +502,7 @@ func cast_spell() -> bool:
 	_mana -= spell_cost
 	mana_changed.emit(_mana, max_mana)
 	var bolt := MAGIC_BOLT_SCENE.instantiate() as MagicBolt
+	bolt.caster = self
 	bolt.direction = signf(_visual.scale.x)
 	if is_zero_approx(bolt.direction):
 		bolt.direction = 1.0
