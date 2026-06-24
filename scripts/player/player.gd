@@ -53,6 +53,11 @@ signal died
 @export var hurt_lock_duration: float = 0.18
 @export var knockback_speed: float = 460.0
 
+@export_category("Block")
+@export var perfect_block_duration: float = 0.2
+@export var block_damage_reduction: float = 0.5
+@export var block_move_multiplier: float = 0.3
+
 var _gravity: float = 1600.0
 var _health: int
 var _mana: int
@@ -80,6 +85,11 @@ var _movement_multiplier: float = 1.0
 var _jump_multiplier: float = 1.0
 var _dash_multiplier: float = 1.0
 var _animation_time: float = 0.0
+var _is_blocking: bool = false
+var _block_timer: float = 0.0
+var _block_facing: float = 1.0
+var _can_block: bool = true
+var _movement_stun_timer: float = 0.0
 var _network_target_position: Vector2
 var _network_target_velocity: Vector2
 var _network_facing: float = 1.0
@@ -95,6 +105,7 @@ const MAGIC_BOLT_SCENE := preload("res://scenes/combat/magic_bolt.tscn")
 @onready var _attack_area: Area2D = $Visual/SwordPivot/AttackArea
 @onready var _slash_visual: Polygon2D = $Visual/SwordPivot/AttackArea/SlashVisual
 @onready var _dash_visual: Polygon2D = $Visual/DashVisual
+@onready var _shield: Node2D = $Visual/Shield
 @onready var _camera: Camera2D = $Camera2D
 
 
@@ -119,9 +130,11 @@ func _physics_process(delta: float) -> void:
 
 	_regenerate_mana(delta)
 	_update_timers(delta)
+	_update_block()
 	if _dash_timer > 0.0:
 		_update_dash(delta)
-	elif not _is_dead and _controls_enabled and _hurt_lock_timer <= 0.0:
+	elif not _is_dead and _controls_enabled and _hurt_lock_timer <= 0.0 \
+		and _movement_stun_timer <= 0.0:
 		_apply_gravity(delta)
 		_handle_horizontal_movement(delta)
 		_handle_jump()
@@ -141,6 +154,7 @@ func _physics_process(delta: float) -> void:
 func _update_timers(delta: float) -> void:
 	_invincibility_timer = maxf(_invincibility_timer - delta, 0.0)
 	_hurt_lock_timer = maxf(_hurt_lock_timer - delta, 0.0)
+	_movement_stun_timer = maxf(_movement_stun_timer - delta, 0.0)
 	_dash_cooldown_timer = maxf(_dash_cooldown_timer - delta, 0.0)
 	_combo_reset_timer = maxf(_combo_reset_timer - delta, 0.0)
 	if _combo_reset_timer <= 0.0 and _attack_phase == AttackPhase.NONE:
@@ -164,12 +178,16 @@ func _apply_gravity(delta: float) -> void:
 
 func _handle_horizontal_movement(delta: float) -> void:
 	var direction := Input.get_axis("move_left", "move_right")
-	var target_speed := direction * move_speed * _movement_multiplier
+	var guard_speed := block_move_multiplier if _is_blocking else 1.0
+	var target_speed := direction * move_speed * _movement_multiplier * guard_speed
 
 	if not is_zero_approx(direction):
 		var current_acceleration := acceleration if is_on_floor() else air_acceleration
 		velocity.x = move_toward(velocity.x, target_speed, current_acceleration * delta)
-		_visual.scale.x = signf(direction)
+		if not _is_blocking:
+			_visual.scale.x = signf(direction)
+		else:
+			_visual.scale.x = _block_facing
 	else:
 		velocity.x = move_toward(velocity.x, 0.0, friction * delta)
 
@@ -188,6 +206,10 @@ func _handle_attack(delta: float) -> void:
 	_attack_cooldown_timer = maxf(_attack_cooldown_timer - delta, 0.0)
 
 	if Input.is_action_just_pressed("attack"):
+		if _is_blocking:
+			_stop_block()
+			_start_attack(1, AttackKind.LOW)
+			return
 		if _attack_phase != AttackPhase.NONE and _combo_step < 3:
 			_combo_queued = true
 		elif _attack_phase == AttackPhase.NONE and _attack_cooldown_timer <= 0.0:
@@ -407,6 +429,7 @@ func _handle_spell() -> void:
 func start_dash() -> void:
 	if _dash_cooldown_timer > 0.0 or _is_dead:
 		return
+	_stop_block()
 	var input_direction := Input.get_axis("move_left", "move_right")
 	_dash_direction = input_direction if not is_zero_approx(input_direction) else signf(_visual.scale.x)
 	if is_zero_approx(_dash_direction):
@@ -446,6 +469,95 @@ func take_damage(amount: int, source_position: Vector2) -> void:
 
 func can_receive_part_damage() -> bool:
 	return not _is_dead and _invincibility_timer <= 0.0
+
+
+func modify_incoming_damage(amount: int, source_position: Vector2) -> int:
+	if not _is_blocking:
+		return amount
+	if _block_timer <= perfect_block_duration:
+		_stun_attacker(source_position)
+		return 0
+	return maxi(1, ceili(amount * (1.0 - block_damage_reduction)))
+
+
+func _update_block() -> void:
+	if not _can_block or _is_dead:
+		_stop_block()
+		return
+	if Input.is_action_just_pressed("move_down") and is_on_floor():
+		_start_block()
+	if _is_blocking:
+		_block_timer += get_physics_process_delta_time()
+		if not Input.is_action_pressed("move_down"):
+			_stop_block()
+
+
+func _start_block() -> void:
+	_is_blocking = true
+	_block_timer = 0.0
+	_block_facing = signf(_visual.scale.x)
+	if is_zero_approx(_block_facing):
+		_block_facing = 1.0
+	_shield.rotation = deg_to_rad(-8.0)
+	_shield.modulate = Color(0.55, 0.9, 1.0, 1.0)
+	if multiplayer.has_multiplayer_peer():
+		_sync_combat_effect.rpc("block", 0, 0, _block_facing)
+
+
+func _stop_block() -> void:
+	_is_blocking = false
+	_block_timer = 0.0
+	if is_instance_valid(_shield):
+		_shield.rotation = 0.0
+		_shield.modulate = Color.WHITE
+
+
+func _stun_attacker(source_position: Vector2) -> void:
+	var attacker: Node2D
+	var best_distance := 4900.0
+	for node in get_tree().get_nodes_in_group("player"):
+		if node == self:
+			continue
+		var candidate := node as Node2D
+		var distance := candidate.global_position.distance_squared_to(source_position)
+		if distance < best_distance:
+			attacker = candidate
+			best_distance = distance
+	for node in get_tree().current_scene.get_children():
+		if node is TrainingDummy:
+			var candidate := node as Node2D
+			var distance := candidate.global_position.distance_squared_to(source_position)
+			if distance < best_distance:
+				attacker = candidate
+				best_distance = distance
+	if not is_instance_valid(attacker):
+		return
+	if attacker is Player and multiplayer.has_multiplayer_peer():
+		(attacker as Player).apply_network_stun.rpc(1.0)
+	elif attacker.has_method("apply_movement_stun"):
+		attacker.apply_movement_stun(1.0)
+
+
+@rpc("any_peer", "call_local", "reliable")
+func apply_network_stun(duration: float) -> void:
+	apply_movement_stun(duration)
+
+
+func apply_movement_stun(duration: float) -> void:
+	_movement_stun_timer = maxf(_movement_stun_timer, duration)
+	velocity.x = 0.0
+
+
+func is_blocking() -> bool:
+	return _is_blocking
+
+
+func can_block() -> bool:
+	return _can_block
+
+
+func get_movement_stun_time() -> float:
+	return _movement_stun_timer
 
 
 func is_dash_invulnerable() -> bool:
@@ -549,6 +661,12 @@ func _sync_combat_effect(action: String, step: int, kind: int, facing: float) ->
 			bolt.collision_mask = 0
 			bolt.global_position = global_position + Vector2(facing * 42.0, -10.0)
 			get_tree().current_scene.add_child(bolt)
+		"block":
+			_shield.visible = true
+			_shield.modulate = Color(0.55, 0.9, 1.0, 1.0)
+			var tween := create_tween()
+			tween.tween_interval(0.25)
+			tween.tween_callback(func() -> void: _shield.modulate = Color.WHITE)
 
 
 func set_controls_enabled(enabled: bool) -> void:
@@ -627,6 +745,11 @@ func _on_part_destroyed(part: BodyPart) -> void:
 		"left_arm", "right_arm":
 			_arm_attack_multiplier *= 0.72
 			_attack_damage_multiplier *= 0.72
+			_can_block = false
+			_stop_block()
+			_shield.visible = false
+			if part.part_id == "right_arm":
+				_sword_pivot.position.x = -14.0
 		"left_leg", "right_leg":
 			_movement_multiplier *= 0.72
 			_jump_multiplier *= 0.82

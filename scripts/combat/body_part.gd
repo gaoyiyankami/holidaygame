@@ -61,7 +61,7 @@ func configure(
 	add_child(_visual)
 
 	_status_dot = Polygon2D.new()
-	_status_dot.position = Vector2(part_size.x * 0.5 + 4.0, -part_size.y * 0.5)
+	_status_dot.position = Vector2.ZERO
 	_status_dot.polygon = PackedVector2Array([
 		Vector2(0, -3), Vector2(3, 0), Vector2(0, 3), Vector2(-3, 0),
 	])
@@ -74,6 +74,10 @@ func receive_damage(amount: int, source_position: Vector2) -> bool:
 		return false
 	if actor.has_method("can_receive_part_damage") and not actor.can_receive_part_damage():
 		return false
+	if actor.has_method("modify_incoming_damage"):
+		amount = actor.modify_incoming_damage(amount, source_position)
+		if amount <= 0:
+			return true
 
 	health = maxi(health - amount, 0)
 	_update_status_dot()
@@ -115,6 +119,10 @@ func animate_transform(offset: Vector2, angle: float, smoothness: float = 0.28) 
 
 func get_status_color() -> Color:
 	return _status_dot.color
+
+
+func get_status_dot_position() -> Vector2:
+	return _status_dot.position
 
 
 func _flash() -> void:

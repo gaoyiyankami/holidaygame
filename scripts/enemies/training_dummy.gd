@@ -37,6 +37,7 @@ var _movement_multiplier: float = 1.0
 var _attack_multiplier: float = 1.0
 var _attack_speed_multiplier: float = 1.0
 var _animation_time: float = 0.0
+var _movement_stun_timer: float = 0.0
 
 @onready var _visual: Node2D = $Visual
 @onready var _parts_root: Node2D = $Visual/Parts
@@ -54,10 +55,14 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_animation_time += delta
+	_movement_stun_timer = maxf(_movement_stun_timer - delta, 0.0)
 	if not is_on_floor():
 		velocity.y += _gravity * delta
 
-	_update_state(delta)
+	if _movement_stun_timer <= 0.0:
+		_update_state(delta)
+	else:
+		velocity.x = 0.0
 	move_and_slide()
 	_animate_body_parts()
 
@@ -182,6 +187,15 @@ func get_movement_multiplier() -> float:
 
 func get_attack_multiplier() -> float:
 	return _attack_multiplier
+
+
+func apply_movement_stun(duration: float) -> void:
+	_movement_stun_timer = maxf(_movement_stun_timer, duration)
+	velocity.x = 0.0
+
+
+func get_movement_stun_time() -> float:
+	return _movement_stun_timer
 
 
 func on_body_part_damaged(part: BodyPart, _amount: int, source_position: Vector2) -> void:

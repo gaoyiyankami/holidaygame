@@ -13,6 +13,10 @@ func _ready() -> void:
 	var player_parts := player.get_node("Visual/Parts").get_children()
 	var enemy_parts := enemy.get_node("Visual/Parts").get_children()
 	var six_parts_created := player_parts.size() == 6 and enemy_parts.size() == 6
+	var dots_centered := true
+	for node in player_parts:
+		if not (node as BodyPart).get_status_dot_position().is_zero_approx():
+			dots_centered = false
 
 	var enemy_arm := _find_part(enemy_parts, "left_arm")
 	var enemy_torso := _find_part(enemy_parts, "torso")
@@ -125,8 +129,33 @@ func _ready() -> void:
 	await get_tree().create_timer(0.3).timeout
 	var mana_regenerated := player.get_mana() > mana_after_spell
 
-	print("Body parts test: base=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s" % [
+	var block_enemy := special_enemy_scene.instantiate() as TrainingDummy
+	$Main.add_child(block_enemy)
+	block_enemy.set_physics_process(false)
+	block_enemy.position = player.position + Vector2(45, 0)
+	player.set("_invincibility_timer", 0.0)
+	var block_torso := _find_part(player_parts, "torso")
+	var perfect_before := block_torso.health
+	player.call("_start_block")
+	var perfect_connected := block_torso.receive_damage(2, block_enemy.global_position)
+	var perfect_blocked := perfect_connected and block_torso.health == perfect_before \
+		and block_enemy.get_movement_stun_time() >= 0.9
+	player.set("_block_timer", 0.3)
+	player.set("_invincibility_timer", 0.0)
+	var reduced_before := block_torso.health
+	block_torso.receive_damage(2, block_enemy.global_position)
+	var half_damage := block_torso.health == reduced_before - 1
+	player.call("_stop_block")
+
+	var shield := player.get_node("Visual/Shield") as Node2D
+	var player_arm := _find_part(player_parts, "left_arm")
+	player.set("_invincibility_timer", 0.0)
+	player_arm.receive_damage(999, block_enemy.global_position)
+	var arm_break_disables_block := not shield.visible and not player.can_block()
+
+	print("Body parts test: base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s half=%s arm_break=%s" % [
 		six_parts_created,
+		dots_centered,
 		parts_animated,
 		no_damage_during_windup and sword_hit_part and sword_animated and attack_has_recovery,
 		dash_iframe_worked,
@@ -136,14 +165,19 @@ func _ready() -> void:
 		low_attack_worked,
 		spell_worked,
 		mana_regenerated,
+		perfect_blocked,
+		half_damage,
+		arm_break_disables_block,
 	])
 
-	var passed := six_parts_created and independent_health and destroyed_part_hidden \
+	var passed := six_parts_created and dots_centered \
+		and independent_health and destroyed_part_hidden \
 		and arm_debuff_applied and parts_animated and no_damage_during_windup \
 		and sword_hit_part and sword_animated and attack_has_recovery \
 		and dash_iframe_worked and room_walls_cover_height \
 		and air_attack_worked and dash_attack_worked \
-		and low_attack_worked and spell_worked and mana_regenerated
+		and low_attack_worked and spell_worked and mana_regenerated \
+		and perfect_blocked and half_damage and arm_break_disables_block
 	get_tree().quit(0 if passed else 1)
 
 
