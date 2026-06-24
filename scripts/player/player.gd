@@ -2,6 +2,7 @@ class_name Player
 extends CharacterBody2D
 
 signal health_changed(current_health: int, max_health: int)
+signal body_parts_changed(summary: String)
 signal stats_changed(attack_damage: int, attack_speed_bonus: int)
 signal died
 
@@ -50,20 +51,22 @@ var _is_dead: bool = false
 var _controls_enabled: bool = true
 var _attack_speed_multiplier: float = 1.0
 var _hit_targets: Dictionary = {}
-var _hurt_tween: Tween
+var _parts: Dictionary = {}
+var _sword_tween: Tween
 
 @onready var _visual: Node2D = $Visual
-@onready var _body_visual: Polygon2D = $Visual/Body
-@onready var _attack_area: Area2D = $Visual/AttackArea
-@onready var _slash_visual: Polygon2D = $Visual/AttackArea/SlashVisual
+@onready var _parts_root: Node2D = $Visual/Parts
+@onready var _sword_pivot: Node2D = $Visual/SwordPivot
+@onready var _attack_area: Area2D = $Visual/SwordPivot/AttackArea
+@onready var _slash_visual: Polygon2D = $Visual/SwordPivot/AttackArea/SlashVisual
 @onready var _dash_visual: Polygon2D = $Visual/DashVisual
 
 
 func _ready() -> void:
 	add_to_group("player")
 	_gravity = float(ProjectSettings.get_setting("physics/2d/default_gravity", 1600.0))
-	_health = max_health
-	health_changed.emit(_health, max_health)
+	_create_body_parts()
+	_refresh_body_health()
 
 
 func _physics_process(delta: float) -> void:
@@ -163,17 +166,27 @@ func _start_attack(step: int) -> void:
 	_slash_visual.scale = Vector2(0.9 + step * 0.12, 0.82 + step * 0.08)
 	_slash_visual.color = Color(1.0, 0.82 - step * 0.08, 0.2, 0.78)
 	_attack_area.position.x = 48.0 + step * 5.0
+	_play_sword_attack(step)
 
 
 func _damage_overlapping_enemies() -> void:
-	for body in _attack_area.get_overlapping_bodies():
-		var target_id := body.get_instance_id()
+	var closest_by_actor: Dictionary = {}
+	for area in _attack_area.get_overlapping_areas():
+		if not (area is BodyPart):
+			continue
+		var part := area as BodyPart
+		var target_id := part.actor.get_instance_id()
 		if _hit_targets.has(target_id):
 			continue
-		if body.has_method("take_damage"):
+		var distance := _attack_area.global_position.distance_squared_to(part.global_position)
+		if not closest_by_actor.has(target_id) or distance < closest_by_actor[target_id]["distance"]:
+			closest_by_actor[target_id] = {"part": part, "distance": distance}
+
+	for target_id in closest_by_actor:
+		var part: BodyPart = closest_by_actor[target_id]["part"]
+		var damage := attack_damage * (2 if _combo_step == 3 else 1)
+		if part.receive_damage(damage, global_position):
 			_hit_targets[target_id] = true
-			var damage := attack_damage * (2 if _combo_step == 3 else 1)
-			body.take_damage(damage, global_position)
 
 
 func _get_attack_duration(step: int) -> float:
@@ -189,7 +202,12 @@ func _get_attack_duration(step: int) -> float:
 func _handle_dash() -> void:
 	if not Input.is_action_just_pressed("dash") or _dash_cooldown_timer > 0.0:
 		return
+	start_dash()
 
+
+func start_dash() -> void:
+	if _dash_cooldown_timer > 0.0 or _is_dead:
+		return
 	var input_direction := Input.get_axis("move_left", "move_right")
 	_dash_direction = input_direction if not is_zero_approx(input_direction) else signf(_visual.scale.x)
 	if is_zero_approx(_dash_direction):
@@ -202,6 +220,7 @@ func _handle_dash() -> void:
 	_combo_queued = false
 	_slash_visual.visible = false
 	_dash_visual.visible = true
+	_set_parts_tint(Color(0.35, 0.95, 1.0, 0.42))
 	velocity = Vector2(_dash_direction * dash_speed, 0.0)
 
 
@@ -210,14 +229,27 @@ func _update_dash(delta: float) -> void:
 	velocity = Vector2(_dash_direction * dash_speed, 0.0)
 	if _dash_timer <= 0.0:
 		_dash_visual.visible = false
+		_set_parts_tint(Color.WHITE)
 		velocity.x *= 0.45
 
 
 func take_damage(amount: int, source_position: Vector2) -> void:
 	if _is_dead or _invincibility_timer > 0.0:
 		return
+	var torso: BodyPart = _parts.get("torso")
+	if is_instance_valid(torso):
+		torso.receive_damage(amount, source_position)
 
-	_health = maxi(_health - amount, 0)
+
+func can_receive_part_damage() -> bool:
+	return not _is_dead and _invincibility_timer <= 0.0
+
+
+func is_dash_invulnerable() -> bool:
+	return _dash_timer > 0.0 and _invincibility_timer > 0.0
+
+
+func on_body_part_damaged(part: BodyPart, _amount: int, source_position: Vector2) -> void:
 	_invincibility_timer = invincibility_duration
 	_hurt_lock_timer = hurt_lock_duration
 	_attack_timer = 0.0
@@ -230,10 +262,8 @@ func take_damage(amount: int, source_position: Vector2) -> void:
 	if is_zero_approx(knockback_direction):
 		knockback_direction = 1.0
 	velocity = Vector2(knockback_direction * knockback_speed, -230.0)
-	_flash_on_hit()
-	health_changed.emit(_health, max_health)
-
-	if _health <= 0:
+	_refresh_body_health()
+	if part.health <= 0 and part.vital:
 		_die()
 
 
@@ -262,24 +292,83 @@ func apply_attack_speed_upgrade() -> void:
 
 
 func apply_max_health_upgrade() -> void:
-	max_health += 2
-	_health = mini(_health + 2, max_health)
-	health_changed.emit(_health, max_health)
+	var torso: BodyPart = _parts.get("torso")
+	if is_instance_valid(torso):
+		torso.increase_max_health(2, 2)
+	_refresh_body_health()
 
 
 func get_attack_speed_bonus() -> int:
 	return roundi((_attack_speed_multiplier - 1.0) * 100.0)
 
 
-func _flash_on_hit() -> void:
-	if _hurt_tween and _hurt_tween.is_valid():
-		_hurt_tween.kill()
-	_body_visual.modulate = Color(1.0, 0.3, 0.3, 1.0)
-	_hurt_tween = create_tween()
-	_hurt_tween.set_loops(3)
-	_hurt_tween.tween_property(_body_visual, "modulate:a", 0.25, 0.08)
-	_hurt_tween.tween_property(_body_visual, "modulate:a", 1.0, 0.08)
-	_hurt_tween.finished.connect(func() -> void: _body_visual.modulate = Color.WHITE)
+func _create_body_parts() -> void:
+	_add_body_part("head", "头部", 5, true, Vector2(22, 18), Vector2(0, -34), Color(0.45, 0.82, 1.0), 16)
+	_add_body_part("torso", "身体", 8, true, Vector2(28, 32), Vector2(0, -7), Color(0.18, 0.62, 0.96), 16)
+	_add_body_part("left_arm", "左臂", 4, false, Vector2(10, 28), Vector2(-21, -7), Color(0.28, 0.72, 1.0), 16)
+	_add_body_part("right_arm", "右臂", 4, false, Vector2(10, 28), Vector2(21, -7), Color(0.28, 0.72, 1.0), 16)
+	_add_body_part("left_leg", "左腿", 5, false, Vector2(11, 30), Vector2(-9, 24), Color(0.12, 0.45, 0.82), 16)
+	_add_body_part("right_leg", "右腿", 5, false, Vector2(11, 30), Vector2(9, 24), Color(0.12, 0.45, 0.82), 16)
+
+
+func _add_body_part(
+	id: StringName,
+	label: String,
+	hp: int,
+	vital: bool,
+	part_size: Vector2,
+	part_position: Vector2,
+	color: Color,
+	layer: int
+) -> void:
+	var part := BodyPart.new()
+	_parts_root.add_child(part)
+	part.configure(self, id, label, hp, vital, part_size, part_position, color, layer)
+	part.health_changed.connect(_on_part_health_changed)
+	_parts[id] = part
+
+
+func _on_part_health_changed(_part: BodyPart) -> void:
+	_refresh_body_health()
+
+
+func _refresh_body_health() -> void:
+	_health = 0
+	max_health = 0
+	var lines: Array[String] = []
+	for id in ["head", "torso", "left_arm", "right_arm", "left_leg", "right_leg"]:
+		var part: BodyPart = _parts.get(id)
+		if not is_instance_valid(part):
+			continue
+		_health += part.health
+		max_health += part.max_health
+		lines.append("%s %d/%d" % [part.display_name, part.health, part.max_health])
+	health_changed.emit(_health, max_health)
+	body_parts_changed.emit("  ".join(lines))
+
+
+func _play_sword_attack(step: int) -> void:
+	if _sword_tween and _sword_tween.is_valid():
+		_sword_tween.kill()
+	var start_angle := deg_to_rad(-72.0 if step != 2 else 58.0)
+	var end_angle := deg_to_rad(68.0 if step != 2 else -66.0)
+	if step == 3:
+		start_angle = deg_to_rad(-105.0)
+		end_angle = deg_to_rad(105.0)
+	_sword_pivot.rotation = start_angle
+	_sword_tween = create_tween()
+	_sword_tween.tween_property(
+		_sword_pivot,
+		"rotation",
+		end_angle,
+		_get_attack_duration(step) / _attack_speed_multiplier
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_sword_tween.tween_property(_sword_pivot, "rotation", deg_to_rad(25.0), 0.1)
+
+
+func _set_parts_tint(color: Color) -> void:
+	for part in _parts.values():
+		(part as BodyPart).set_tint(color)
 
 
 func _die() -> void:

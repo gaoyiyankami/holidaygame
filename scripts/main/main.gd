@@ -9,6 +9,7 @@ var _upgrade_open: bool = false
 @onready var _player: Player = $Player
 @onready var _enemy_spawn: Marker2D = $EnemySpawn
 @onready var _health_label: Label = $UI/HealthPanel/HealthLabel
+@onready var _body_parts_label: Label = $UI/BodyPartsPanel/BodyPartsLabel
 @onready var _stats_label: Label = $UI/StatsPanel/StatsLabel
 @onready var _wave_label: Label = $UI/WaveLabel
 @onready var _status_label: Label = $UI/StatusLabel
@@ -20,6 +21,7 @@ var _upgrade_open: bool = false
 
 func _ready() -> void:
 	_player.health_changed.connect(_on_player_health_changed)
+	_player.body_parts_changed.connect(_on_player_body_parts_changed)
 	_player.stats_changed.connect(_on_player_stats_changed)
 	_player.died.connect(_on_player_died)
 	_attack_button.pressed.connect(_choose_attack_upgrade)
@@ -91,6 +93,10 @@ func _spawn_next_enemy() -> void:
 
 func _on_player_health_changed(current_health: int, max_health: int) -> void:
 	_health_label.text = "玩家生命  %d / %d" % [current_health, max_health]
+
+
+func _on_player_body_parts_changed(summary: String) -> void:
+	_body_parts_label.text = summary
 
 
 func _on_player_stats_changed(attack_damage: int, attack_speed_bonus: int) -> void:

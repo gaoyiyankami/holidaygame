@@ -32,17 +32,17 @@ var _target: Player
 var _state: State = State.IDLE
 var _state_timer: float = 0.0
 var _attack_has_hit: bool = false
-var _flash_tween: Tween
+var _parts: Dictionary = {}
 
 @onready var _visual: Node2D = $Visual
-@onready var _body_visual: Polygon2D = $Visual/BodyVisual
+@onready var _parts_root: Node2D = $Visual/Parts
 @onready var _attack_area: Area2D = $Visual/AttackArea
 @onready var _attack_visual: Polygon2D = $Visual/AttackArea/AttackVisual
 @onready var _health_label: Label = $HealthLabel
 
 
 func _ready() -> void:
-	_health = max_health
+	_create_body_parts()
 	_gravity = float(ProjectSettings.get_setting("physics/2d/default_gravity", 1600.0))
 	_target = get_tree().get_first_node_in_group("player") as Player
 	_update_health_label()
@@ -98,12 +98,12 @@ func _update_state(delta: float) -> void:
 func _change_state(next_state: State) -> void:
 	_state = next_state
 	_attack_visual.visible = false
-	_body_visual.modulate = Color.WHITE
+	_set_parts_tint(Color.WHITE)
 
 	match _state:
 		State.WINDUP:
 			_state_timer = attack_windup
-			_body_visual.modulate = Color(1.0, 0.72, 0.25, 1.0)
+			_set_parts_tint(Color(1.0, 0.72, 0.25, 1.0))
 		State.ATTACK:
 			_state_timer = attack_duration
 			_attack_has_hit = false
@@ -111,7 +111,7 @@ func _change_state(next_state: State) -> void:
 			_try_damage_player()
 		State.RECOVERY:
 			_state_timer = attack_cooldown
-			_body_visual.modulate = Color(0.72, 0.72, 0.72, 1.0)
+			_set_parts_tint(Color(0.72, 0.72, 0.72, 1.0))
 		State.HURT:
 			_state_timer = hurt_duration
 		State.DEAD:
@@ -143,43 +143,62 @@ func _stop_horizontal(delta: float) -> void:
 func _try_damage_player() -> void:
 	if _attack_has_hit:
 		return
-	for body in _attack_area.get_overlapping_bodies():
-		if body.has_method("take_damage"):
+	var closest_part: BodyPart
+	var closest_distance := INF
+	for area in _attack_area.get_overlapping_areas():
+		if area is BodyPart:
+			var part := area as BodyPart
+			var distance := _attack_area.global_position.distance_squared_to(part.global_position)
+			if distance < closest_distance:
+				closest_part = part
+				closest_distance = distance
+	if is_instance_valid(closest_part):
+		if closest_part.receive_damage(attack_damage, global_position):
 			_attack_has_hit = true
-			body.take_damage(attack_damage, global_position)
-			return
 
 
 func take_damage(amount: int, source_position: Vector2) -> void:
 	if _state == State.DEAD:
 		return
+	var torso: BodyPart = _parts.get("torso")
+	if is_instance_valid(torso):
+		torso.receive_damage(amount, source_position)
 
-	_health = maxi(_health - amount, 0)
+
+func can_receive_part_damage() -> bool:
+	return _state != State.DEAD
+
+
+func on_body_part_damaged(part: BodyPart, _amount: int, source_position: Vector2) -> void:
 	var knockback_direction := signf(global_position.x - source_position.x)
 	if is_zero_approx(knockback_direction):
 		knockback_direction = 1.0
 	velocity.x = knockback_direction * knockback_speed
 	velocity.y = -140.0
-	_flash_on_hit()
 	_update_health_label()
 
-	if _health <= 0:
+	if part.health <= 0 and part.vital:
 		_die()
 	else:
 		_change_state(State.HURT)
 
 
-func _flash_on_hit() -> void:
-	if _flash_tween and _flash_tween.is_valid():
-		_flash_tween.kill()
-	_body_visual.modulate = Color.WHITE
-	_flash_tween = create_tween()
-	_flash_tween.tween_property(_body_visual, "modulate", Color(1, 0.3, 0.3), 0.07)
-	_flash_tween.tween_property(_body_visual, "modulate", Color.WHITE, 0.11)
-
-
 func _update_health_label() -> void:
-	_health_label.text = "HP %d / %d" % [_health, max_health]
+	_health = 0
+	var total_max := 0
+	for part in _parts.values():
+		var body_part := part as BodyPart
+		_health += body_part.health
+		total_max += body_part.max_health
+	var head: BodyPart = _parts.get("head")
+	var torso: BodyPart = _parts.get("torso")
+	if is_instance_valid(head) and is_instance_valid(torso):
+		_health_label.text = "总血量 %d/%d\n头 %d  身 %d" % [
+			_health,
+			total_max,
+			head.health,
+			torso.health,
+		]
 
 
 func _die() -> void:
@@ -194,3 +213,39 @@ func _die() -> void:
 	death_tween.tween_property(self, "scale", Vector2(1.3, 0.2), 0.35)
 	death_tween.set_parallel(false)
 	death_tween.tween_callback(queue_free)
+
+
+func _create_body_parts() -> void:
+	var torso_hp := maxi(max_health, 4)
+	_add_body_part("head", "头部", maxi(torso_hp - 2, 3), true, Vector2(24, 19), Vector2(0, -34), Color(1.0, 0.44, 0.4), 8)
+	_add_body_part("torso", "身体", torso_hp, true, Vector2(30, 32), Vector2(0, -7), Color(0.88, 0.2, 0.27), 8)
+	_add_body_part("left_arm", "左臂", maxi(torso_hp - 3, 2), false, Vector2(11, 28), Vector2(-22, -7), Color(1.0, 0.34, 0.3), 8)
+	_add_body_part("right_arm", "右臂", maxi(torso_hp - 3, 2), false, Vector2(11, 28), Vector2(22, -7), Color(1.0, 0.34, 0.3), 8)
+	_add_body_part("left_leg", "左腿", maxi(torso_hp - 2, 3), false, Vector2(12, 30), Vector2(-10, 24), Color(0.66, 0.12, 0.18), 8)
+	_add_body_part("right_leg", "右腿", maxi(torso_hp - 2, 3), false, Vector2(12, 30), Vector2(10, 24), Color(0.66, 0.12, 0.18), 8)
+
+
+func _add_body_part(
+	id: StringName,
+	label: String,
+	hp: int,
+	vital: bool,
+	part_size: Vector2,
+	part_position: Vector2,
+	color: Color,
+	layer: int
+) -> void:
+	var part := BodyPart.new()
+	_parts_root.add_child(part)
+	part.configure(self, id, label, hp, vital, part_size, part_position, color, layer)
+	part.health_changed.connect(_on_part_health_changed)
+	_parts[id] = part
+
+
+func _on_part_health_changed(_part: BodyPart) -> void:
+	_update_health_label()
+
+
+func _set_parts_tint(color: Color) -> void:
+	for part in _parts.values():
+		(part as BodyPart).set_tint(color)
