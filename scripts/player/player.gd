@@ -239,6 +239,8 @@ func _start_attack(step: int, kind: AttackKind = AttackKind.NORMAL) -> void:
 		_:
 			_attack_area.position = Vector2(48.0 + step * 5.0, 0)
 	_play_sword_windup(step)
+	if multiplayer.has_multiplayer_peer():
+		_sync_combat_effect.rpc("attack", step, int(kind), _visual.scale.x)
 
 
 func _begin_active_attack() -> void:
@@ -420,6 +422,8 @@ func start_dash() -> void:
 	_dash_visual.visible = true
 	_set_parts_tint(Color(0.35, 0.95, 1.0, 0.42))
 	velocity = Vector2(_dash_direction * dash_speed * _dash_multiplier, 0.0)
+	if multiplayer.has_multiplayer_peer():
+		_sync_combat_effect.rpc("dash", 0, 0, _dash_direction)
 
 
 func _update_dash(delta: float) -> void:
@@ -508,7 +512,43 @@ func cast_spell() -> bool:
 		bolt.direction = 1.0
 	bolt.global_position = global_position + Vector2(bolt.direction * 42.0, -10.0)
 	get_tree().current_scene.add_child(bolt)
+	if multiplayer.has_multiplayer_peer():
+		_sync_combat_effect.rpc("spell", 0, 0, bolt.direction)
 	return true
+
+
+@rpc("authority", "call_remote", "reliable")
+func _sync_combat_effect(action: String, step: int, kind: int, facing: float) -> void:
+	_visual.scale.x = facing
+	match action:
+		"attack":
+			_combo_step = step
+			_attack_kind = kind
+			_attack_phase = AttackPhase.ACTIVE
+			_slash_visual.visible = true
+			_play_sword_swing(step)
+			var tween := create_tween()
+			tween.tween_interval(0.16)
+			tween.tween_callback(func() -> void:
+				_slash_visual.visible = false
+				_attack_phase = AttackPhase.NONE
+			)
+		"dash":
+			_dash_visual.visible = true
+			_set_parts_tint(Color(0.35, 0.95, 1.0, 0.42))
+			var tween := create_tween()
+			tween.tween_interval(dash_duration)
+			tween.tween_callback(func() -> void:
+				_dash_visual.visible = false
+				_set_parts_tint(Color.WHITE)
+			)
+		"spell":
+			var bolt := MAGIC_BOLT_SCENE.instantiate() as MagicBolt
+			bolt.caster = self
+			bolt.direction = facing
+			bolt.collision_mask = 0
+			bolt.global_position = global_position + Vector2(facing * 42.0, -10.0)
+			get_tree().current_scene.add_child(bolt)
 
 
 func set_controls_enabled(enabled: bool) -> void:

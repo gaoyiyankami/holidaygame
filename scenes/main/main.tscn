@@ -151,6 +151,42 @@ shape = SubResource("RectangleShape_platform")
 polygon = PackedVector2Array(-140, -16, 140, -16, 140, 16, -140, 16)
 color = Color(0.29, 0.38, 0.47, 1)
 
+[node name="PvPMap" type="Node2D" parent="."]
+visible = false
+
+[node name="CenterPlatform" type="StaticBody2D" parent="PvPMap"]
+position = Vector2(640, 500)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="PvPMap/CenterPlatform"]
+disabled = true
+shape = SubResource("RectangleShape_platform")
+
+[node name="Visual" type="Polygon2D" parent="PvPMap/CenterPlatform"]
+polygon = PackedVector2Array(-140, -16, 140, -16, 140, 16, -140, 16)
+color = Color(0.52, 0.18, 0.22, 1)
+
+[node name="LeftHighPlatform" type="StaticBody2D" parent="PvPMap"]
+position = Vector2(260, 380)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="PvPMap/LeftHighPlatform"]
+disabled = true
+shape = SubResource("RectangleShape_platform")
+
+[node name="Visual" type="Polygon2D" parent="PvPMap/LeftHighPlatform"]
+polygon = PackedVector2Array(-140, -16, 140, -16, 140, 16, -140, 16)
+color = Color(0.42, 0.13, 0.18, 1)
+
+[node name="RightHighPlatform" type="StaticBody2D" parent="PvPMap"]
+position = Vector2(1020, 380)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="PvPMap/RightHighPlatform"]
+disabled = true
+shape = SubResource("RectangleShape_platform")
+
+[node name="Visual" type="Polygon2D" parent="PvPMap/RightHighPlatform"]
+polygon = PackedVector2Array(-140, -16, 140, -16, 140, 16, -140, 16)
+color = Color(0.42, 0.13, 0.18, 1)
+
 [node name="Player" parent="." instance=ExtResource("1_player")]
 position = Vector2(170, 610)
 

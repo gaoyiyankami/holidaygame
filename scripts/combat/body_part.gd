@@ -14,6 +14,7 @@ var rest_position: Vector2
 var rest_rotation: float = 0.0
 
 var _visual: Polygon2D
+var _status_dot: Polygon2D
 var _collision: CollisionShape2D
 var _base_color: Color
 
@@ -59,6 +60,14 @@ func configure(
 	_visual.color = color
 	add_child(_visual)
 
+	_status_dot = Polygon2D.new()
+	_status_dot.position = Vector2(part_size.x * 0.5 + 4.0, -part_size.y * 0.5)
+	_status_dot.polygon = PackedVector2Array([
+		Vector2(0, -3), Vector2(3, 0), Vector2(0, 3), Vector2(-3, 0),
+	])
+	add_child(_status_dot)
+	_update_status_dot()
+
 
 func receive_damage(amount: int, source_position: Vector2) -> bool:
 	if health <= 0:
@@ -67,6 +76,7 @@ func receive_damage(amount: int, source_position: Vector2) -> bool:
 		return false
 
 	health = maxi(health - amount, 0)
+	_update_status_dot()
 	_flash()
 	health_changed.emit(self)
 	if actor.has_method("on_body_part_damaged"):
@@ -82,6 +92,7 @@ func receive_damage(amount: int, source_position: Vector2) -> bool:
 func increase_max_health(amount: int, heal_amount: int) -> void:
 	max_health += amount
 	health = mini(health + heal_amount, max_health)
+	_update_status_dot()
 	health_changed.emit(self)
 
 
@@ -102,9 +113,25 @@ func animate_transform(offset: Vector2, angle: float, smoothness: float = 0.28) 
 	rotation = lerp_angle(rotation, rest_rotation + angle, smoothness)
 
 
+func get_status_color() -> Color:
+	return _status_dot.color
+
+
 func _flash() -> void:
 	if not is_instance_valid(_visual):
 		return
 	var tween := create_tween()
 	_visual.modulate = Color(1.0, 0.2, 0.2, 1.0)
 	tween.tween_property(_visual, "modulate", Color.WHITE, 0.14)
+
+
+func _update_status_dot() -> void:
+	if not is_instance_valid(_status_dot):
+		return
+	var ratio := float(health) / float(max_health)
+	if ratio < 0.2:
+		_status_dot.color = Color(1.0, 0.16, 0.12)
+	elif ratio < 0.5:
+		_status_dot.color = Color(1.0, 0.82, 0.12)
+	else:
+		_status_dot.color = Color(0.2, 1.0, 0.3)

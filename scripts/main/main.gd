@@ -8,6 +8,7 @@ var _wave: int = 1
 var _current_enemy: TrainingDummy
 var _upgrade_open: bool = false
 var _network_players: Dictionary = {}
+var _pvp_mode: bool = false
 
 @onready var _player: Player = $Player
 @onready var _enemy_spawn: Marker2D = $EnemySpawn
@@ -63,9 +64,13 @@ func _ready() -> void:
 	_player.set_controls_enabled(false)
 	_network_panel.visible = false
 	_set_game_active(false)
+	if _is_dedicated_server():
+		_port_input.value = _server_port_from_args()
+		call_deferred("_host_game")
 
 
 func _start_single_player() -> void:
+	_set_pvp_mode(false)
 	_start_menu.visible = false
 	_network_panel.visible = false
 	_set_game_active(true)
@@ -121,6 +126,7 @@ func _host_game() -> void:
 	_network_status.text = "主机已开启，端口 %d（最多 8 人）" % port
 	_network_panel.visible = false
 	_set_game_active(true)
+	_set_pvp_mode(true)
 	_host_button.disabled = true
 	_join_button.disabled = true
 
@@ -152,6 +158,44 @@ func _on_connected_to_server() -> void:
 	_network_status.text = "连接成功，玩家编号 %d" % multiplayer.get_unique_id()
 	_network_panel.visible = false
 	_set_game_active(true)
+	_set_pvp_mode(true)
+
+
+func _is_dedicated_server() -> bool:
+	return "--server" in OS.get_cmdline_args() or "--server" in OS.get_cmdline_user_args()
+
+
+func _server_port_from_args() -> int:
+	for argument in OS.get_cmdline_args() + OS.get_cmdline_user_args():
+		if argument.begins_with("--port="):
+			return clampi(int(argument.trim_prefix("--port=")), 1024, 65535)
+	return 7000
+
+
+func _set_pvp_mode(enabled: bool) -> void:
+	_pvp_mode = enabled
+	$PvPMap.visible = enabled
+	for collision in $PvPMap.get_children():
+		if collision is StaticBody2D:
+			var shape := collision.get_node_or_null("CollisionShape2D") as CollisionShape2D
+			if is_instance_valid(shape):
+				shape.disabled = not enabled
+	$PlatformLeft.visible = not enabled
+	$PlatformRight.visible = not enabled
+	$PlatformLeft/CollisionShape2D.disabled = enabled
+	$PlatformRight/CollisionShape2D.disabled = enabled
+	if is_instance_valid(_current_enemy):
+		_current_enemy.visible = not enabled
+		_current_enemy.set_physics_process(not enabled)
+	_wave_label.visible = not enabled
+	if enabled:
+		_room_title("PvP 竞技场")
+	else:
+		_room_title("第一战斗房间 · 废弃大厅")
+
+
+func _room_title(title: String) -> void:
+	$RoomTitle.text = title
 
 
 func _on_connection_failed() -> void:
