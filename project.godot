@@ -47,6 +47,10 @@ attack={
 "deadzone": 0.5,
 "events": [Object(InputEventKey,"physical_keycode":74), Object(InputEventMouseButton,"button_index":1)]
 }
+dash={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":75), Object(InputEventKey,"physical_keycode":4194325)]
+}
 
 [layer_names]
 

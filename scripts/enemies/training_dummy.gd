@@ -1,6 +1,16 @@
 class_name TrainingDummy
 extends CharacterBody2D
 
+enum State {
+	IDLE,
+	CHASE,
+	WINDUP,
+	ATTACK,
+	RECOVERY,
+	HURT,
+	DEAD,
+}
+
 @export var max_health: int = 3
 @export var knockback_speed: float = 340.0
 @export_category("Movement")
@@ -12,14 +22,13 @@ extends CharacterBody2D
 @export var attack_windup: float = 0.28
 @export var attack_duration: float = 0.16
 @export var attack_cooldown: float = 1.0
+@export var hurt_duration: float = 0.2
 
 var _health: int
 var _gravity: float = 1600.0
-var _is_dead: bool = false
 var _target: Player
-var _attack_windup_timer: float = 0.0
-var _attack_timer: float = 0.0
-var _attack_cooldown_timer: float = 0.0
+var _state: State = State.IDLE
+var _state_timer: float = 0.0
 var _attack_has_hit: bool = false
 var _flash_tween: Tween
 
@@ -41,60 +50,92 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y += _gravity * delta
 
-	_attack_cooldown_timer = maxf(_attack_cooldown_timer - delta, 0.0)
-	if not _is_dead:
-		_update_ai(delta)
+	_update_state(delta)
 	move_and_slide()
 
 
-func _update_ai(delta: float) -> void:
+func _update_state(delta: float) -> void:
+	if _state == State.DEAD:
+		return
+
 	if not is_instance_valid(_target):
 		_target = get_tree().get_first_node_in_group("player") as Player
 		velocity.x = move_toward(velocity.x, 0.0, 900.0 * delta)
 		return
 
-	if _attack_windup_timer > 0.0:
-		velocity.x = move_toward(velocity.x, 0.0, 1200.0 * delta)
-		_attack_windup_timer = maxf(_attack_windup_timer - delta, 0.0)
-		if _attack_windup_timer <= 0.0:
-			_begin_attack_hitbox()
-		return
-
-	if _attack_timer > 0.0:
-		velocity.x = move_toward(velocity.x, 0.0, 1200.0 * delta)
-		_attack_timer = maxf(_attack_timer - delta, 0.0)
-		_try_damage_player()
-		if _attack_timer <= 0.0:
-			_attack_visual.visible = false
-		return
-
-	var distance_to_player := global_position.distance_to(_target.global_position)
-	var horizontal_distance := absf(global_position.x - _target.global_position.x)
-	var direction := signf(_target.global_position.x - global_position.x)
-	if not is_zero_approx(direction):
-		_visual.scale.x = direction
-
-	if horizontal_distance <= attack_range and absf(global_position.y - _target.global_position.y) < 80.0:
-		if _attack_cooldown_timer <= 0.0:
-			_start_attack()
-	elif distance_to_player <= chase_range:
-		velocity.x = direction * move_speed
-	else:
-		velocity.x = move_toward(velocity.x, 0.0, 900.0 * delta)
-
-
-func _start_attack() -> void:
-	_attack_windup_timer = attack_windup
-	_attack_cooldown_timer = attack_cooldown
-	_body_visual.modulate = Color(1.0, 0.75, 0.3, 1.0)
+	var direction := _face_target()
+	match _state:
+		State.IDLE:
+			velocity.x = move_toward(velocity.x, 0.0, 900.0 * delta)
+			if _can_attack():
+				_change_state(State.WINDUP)
+			elif global_position.distance_to(_target.global_position) <= chase_range:
+				_change_state(State.CHASE)
+		State.CHASE:
+			if _can_attack():
+				_change_state(State.WINDUP)
+			elif global_position.distance_to(_target.global_position) > chase_range:
+				_change_state(State.IDLE)
+			else:
+				velocity.x = direction * move_speed
+		State.WINDUP:
+			_stop_horizontal(delta)
+			_tick_timed_state(delta, State.ATTACK)
+		State.ATTACK:
+			_stop_horizontal(delta)
+			_try_damage_player()
+			_tick_timed_state(delta, State.RECOVERY)
+		State.RECOVERY:
+			_stop_horizontal(delta)
+			_tick_timed_state(delta, State.IDLE)
+		State.HURT:
+			velocity.x = move_toward(velocity.x, 0.0, 520.0 * delta)
+			_tick_timed_state(delta, State.IDLE)
 
 
-func _begin_attack_hitbox() -> void:
-	_attack_timer = attack_duration
-	_attack_has_hit = false
-	_attack_visual.visible = true
+func _change_state(next_state: State) -> void:
+	_state = next_state
+	_attack_visual.visible = false
 	_body_visual.modulate = Color.WHITE
-	_try_damage_player()
+
+	match _state:
+		State.WINDUP:
+			_state_timer = attack_windup
+			_body_visual.modulate = Color(1.0, 0.72, 0.25, 1.0)
+		State.ATTACK:
+			_state_timer = attack_duration
+			_attack_has_hit = false
+			_attack_visual.visible = true
+			_try_damage_player()
+		State.RECOVERY:
+			_state_timer = attack_cooldown
+			_body_visual.modulate = Color(0.72, 0.72, 0.72, 1.0)
+		State.HURT:
+			_state_timer = hurt_duration
+		State.DEAD:
+			_state_timer = 0.0
+
+
+func _tick_timed_state(delta: float, next_state: State) -> void:
+	_state_timer = maxf(_state_timer - delta, 0.0)
+	if _state_timer <= 0.0:
+		_change_state(next_state)
+
+
+func _face_target() -> float:
+	var direction := signf(_target.global_position.x - global_position.x)
+	if not is_zero_approx(direction) and _state not in [State.HURT, State.DEAD]:
+		_visual.scale.x = direction
+	return direction
+
+
+func _can_attack() -> bool:
+	return absf(global_position.x - _target.global_position.x) <= attack_range \
+		and absf(global_position.y - _target.global_position.y) < 80.0
+
+
+func _stop_horizontal(delta: float) -> void:
+	velocity.x = move_toward(velocity.x, 0.0, 1200.0 * delta)
 
 
 func _try_damage_player() -> void:
@@ -108,13 +149,10 @@ func _try_damage_player() -> void:
 
 
 func take_damage(amount: int, source_position: Vector2) -> void:
-	if _is_dead:
+	if _state == State.DEAD:
 		return
 
 	_health = maxi(_health - amount, 0)
-	_attack_windup_timer = 0.0
-	_attack_timer = 0.0
-	_attack_visual.visible = false
 	var knockback_direction := signf(global_position.x - source_position.x)
 	if is_zero_approx(knockback_direction):
 		knockback_direction = 1.0
@@ -125,6 +163,8 @@ func take_damage(amount: int, source_position: Vector2) -> void:
 
 	if _health <= 0:
 		_die()
+	else:
+		_change_state(State.HURT)
 
 
 func _flash_on_hit() -> void:
@@ -141,8 +181,7 @@ func _update_health_label() -> void:
 
 
 func _die() -> void:
-	_is_dead = true
-	_attack_visual.visible = false
+	_change_state(State.DEAD)
 	collision_layer = 0
 	collision_mask = 0
 	_health_label.text = "击败！"

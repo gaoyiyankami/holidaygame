@@ -94,19 +94,19 @@ position = Vector2(560, 602)
 offset_left = 24.0
 offset_top = 24.0
 offset_right = 390.0
-offset_bottom = 132.0
+offset_bottom = 160.0
 theme_override_styles/panel = SubResource("StyleBox_panel")
 
 [node name="Label" type="Label" parent="UI/HelpPanel"]
-text = "移动：A / D 或方向键\n跳跃：空格 / W / ↑\n攻击：J / 鼠标左键"
+text = "移动：A / D 或方向键\n跳跃：空格 / W / ↑\n三段攻击：J / 鼠标左键\n冲刺：K / Shift"
 theme_override_colors/font_color = Color(0.92, 0.96, 1, 1)
 theme_override_font_sizes/font_size = 20
 
 [node name="HealthPanel" type="PanelContainer" parent="UI"]
 offset_left = 24.0
-offset_top = 148.0
+offset_top = 176.0
 offset_right = 286.0
-offset_bottom = 198.0
+offset_bottom = 226.0
 theme_override_styles/panel = SubResource("StyleBox_health")
 
 [node name="HealthLabel" type="Label" parent="UI/HealthPanel"]

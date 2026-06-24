@@ -18,8 +18,12 @@ signal died
 
 @export_category("Combat")
 @export var attack_damage: int = 1
-@export var attack_duration: float = 0.16
-@export var attack_cooldown: float = 0.32
+@export var combo_reset_time: float = 0.5
+
+@export_category("Dash")
+@export var dash_speed: float = 760.0
+@export var dash_duration: float = 0.16
+@export var dash_cooldown: float = 0.65
 
 @export_category("Health")
 @export var max_health: int = 5
@@ -33,6 +37,12 @@ var _coyote_timer: float = 0.0
 var _jump_buffer_timer: float = 0.0
 var _attack_timer: float = 0.0
 var _attack_cooldown_timer: float = 0.0
+var _combo_reset_timer: float = 0.0
+var _combo_step: int = 0
+var _combo_queued: bool = false
+var _dash_timer: float = 0.0
+var _dash_cooldown_timer: float = 0.0
+var _dash_direction: float = 1.0
 var _invincibility_timer: float = 0.0
 var _hurt_lock_timer: float = 0.0
 var _is_dead: bool = false
@@ -43,6 +53,7 @@ var _hurt_tween: Tween
 @onready var _body_visual: Polygon2D = $Visual/Body
 @onready var _attack_area: Area2D = $Visual/AttackArea
 @onready var _slash_visual: Polygon2D = $Visual/AttackArea/SlashVisual
+@onready var _dash_visual: Polygon2D = $Visual/DashVisual
 
 
 func _ready() -> void:
@@ -53,19 +64,28 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_update_timers(delta)
-	_apply_gravity(delta)
-	if not _is_dead and _hurt_lock_timer <= 0.0:
+	if _dash_timer > 0.0:
+		_update_dash(delta)
+	elif not _is_dead and _hurt_lock_timer <= 0.0:
+		_apply_gravity(delta)
 		_handle_horizontal_movement(delta)
 		_handle_jump()
 		_handle_attack(delta)
-	elif _is_dead:
-		velocity.x = move_toward(velocity.x, 0.0, friction * delta)
+		_handle_dash()
+	else:
+		_apply_gravity(delta)
+		if _is_dead:
+			velocity.x = move_toward(velocity.x, 0.0, friction * delta)
 	move_and_slide()
 
 
 func _update_timers(delta: float) -> void:
 	_invincibility_timer = maxf(_invincibility_timer - delta, 0.0)
 	_hurt_lock_timer = maxf(_hurt_lock_timer - delta, 0.0)
+	_dash_cooldown_timer = maxf(_dash_cooldown_timer - delta, 0.0)
+	_combo_reset_timer = maxf(_combo_reset_timer - delta, 0.0)
+	if _combo_reset_timer <= 0.0 and _attack_timer <= 0.0:
+		_combo_step = 0
 
 	if is_on_floor():
 		_coyote_timer = coyote_time
@@ -108,8 +128,11 @@ func _handle_jump() -> void:
 func _handle_attack(delta: float) -> void:
 	_attack_cooldown_timer = maxf(_attack_cooldown_timer - delta, 0.0)
 
-	if Input.is_action_just_pressed("attack") and _attack_cooldown_timer <= 0.0:
-		_start_attack()
+	if Input.is_action_just_pressed("attack"):
+		if _attack_timer > 0.0 and _combo_step < 3:
+			_combo_queued = true
+		elif _attack_timer <= 0.0 and _attack_cooldown_timer <= 0.0:
+			_start_attack((_combo_step % 3) + 1)
 
 	if _attack_timer <= 0.0:
 		return
@@ -119,13 +142,23 @@ func _handle_attack(delta: float) -> void:
 
 	if _attack_timer <= 0.0:
 		_slash_visual.visible = false
+		if _combo_queued and _combo_step < 3:
+			_combo_queued = false
+			_start_attack(_combo_step + 1)
+		else:
+			_combo_queued = false
+			_attack_cooldown_timer = 0.12 if _combo_step < 3 else 0.26
+			_combo_reset_timer = combo_reset_time
 
 
-func _start_attack() -> void:
-	_attack_timer = attack_duration
-	_attack_cooldown_timer = attack_cooldown
+func _start_attack(step: int) -> void:
+	_combo_step = step
+	_attack_timer = _get_attack_duration(step)
 	_hit_targets.clear()
 	_slash_visual.visible = true
+	_slash_visual.scale = Vector2(0.9 + step * 0.12, 0.82 + step * 0.08)
+	_slash_visual.color = Color(1.0, 0.82 - step * 0.08, 0.2, 0.78)
+	_attack_area.position.x = 48.0 + step * 5.0
 
 
 func _damage_overlapping_enemies() -> void:
@@ -135,7 +168,45 @@ func _damage_overlapping_enemies() -> void:
 			continue
 		if body.has_method("take_damage"):
 			_hit_targets[target_id] = true
-			body.take_damage(attack_damage, global_position)
+			var damage := attack_damage * (2 if _combo_step == 3 else 1)
+			body.take_damage(damage, global_position)
+
+
+func _get_attack_duration(step: int) -> float:
+	match step:
+		1:
+			return 0.15
+		2:
+			return 0.17
+		_:
+			return 0.23
+
+
+func _handle_dash() -> void:
+	if not Input.is_action_just_pressed("dash") or _dash_cooldown_timer > 0.0:
+		return
+
+	var input_direction := Input.get_axis("move_left", "move_right")
+	_dash_direction = input_direction if not is_zero_approx(input_direction) else signf(_visual.scale.x)
+	if is_zero_approx(_dash_direction):
+		_dash_direction = 1.0
+	_visual.scale.x = _dash_direction
+	_dash_timer = dash_duration
+	_dash_cooldown_timer = dash_cooldown
+	_invincibility_timer = maxf(_invincibility_timer, dash_duration)
+	_attack_timer = 0.0
+	_combo_queued = false
+	_slash_visual.visible = false
+	_dash_visual.visible = true
+	velocity = Vector2(_dash_direction * dash_speed, 0.0)
+
+
+func _update_dash(delta: float) -> void:
+	_dash_timer = maxf(_dash_timer - delta, 0.0)
+	velocity = Vector2(_dash_direction * dash_speed, 0.0)
+	if _dash_timer <= 0.0:
+		_dash_visual.visible = false
+		velocity.x *= 0.45
 
 
 func take_damage(amount: int, source_position: Vector2) -> void:
@@ -146,7 +217,10 @@ func take_damage(amount: int, source_position: Vector2) -> void:
 	_invincibility_timer = invincibility_duration
 	_hurt_lock_timer = hurt_lock_duration
 	_attack_timer = 0.0
+	_combo_queued = false
+	_dash_timer = 0.0
 	_slash_visual.visible = false
+	_dash_visual.visible = false
 
 	var knockback_direction := signf(global_position.x - source_position.x)
 	if is_zero_approx(knockback_direction):
