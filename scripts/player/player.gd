@@ -40,6 +40,7 @@ signal died
 @export_category("Magic")
 @export var max_mana: int = 100
 @export var spell_cost: int = 20
+@export var mana_regen_per_second: float = 8.0
 
 @export_category("Dash")
 @export var dash_speed: float = 760.0
@@ -55,6 +56,7 @@ signal died
 var _gravity: float = 1600.0
 var _health: int
 var _mana: int
+var _mana_regen_buffer: float = 0.0
 var _coyote_timer: float = 0.0
 var _jump_buffer_timer: float = 0.0
 var _attack_timer: float = 0.0
@@ -103,6 +105,7 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_animation_time += delta
+	_regenerate_mana(delta)
 	_update_timers(delta)
 	if _dash_timer > 0.0:
 		_update_dash(delta)
@@ -420,6 +423,19 @@ func get_health() -> int:
 
 func get_mana() -> int:
 	return _mana
+
+
+func _regenerate_mana(delta: float) -> void:
+	if _mana >= max_mana:
+		_mana_regen_buffer = 0.0
+		return
+	_mana_regen_buffer += mana_regen_per_second * delta
+	var restored := floori(_mana_regen_buffer)
+	if restored <= 0:
+		return
+	_mana_regen_buffer -= restored
+	_mana = mini(_mana + restored, max_mana)
+	mana_changed.emit(_mana, max_mana)
 
 
 func cast_spell() -> bool:

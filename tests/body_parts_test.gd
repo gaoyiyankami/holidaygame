@@ -115,8 +115,11 @@ func _ready() -> void:
 	await get_tree().create_timer(0.35).timeout
 	var spell_worked := spell_cast and player.get_mana() == mana_before - player.spell_cost \
 		and _total_health(spell_enemy.get_node("Visual/Parts").get_children()) < spell_before
+	var mana_after_spell := player.get_mana()
+	await get_tree().create_timer(0.3).timeout
+	var mana_regenerated := player.get_mana() > mana_after_spell
 
-	print("Body parts test: base=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s" % [
+	print("Body parts test: base=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s" % [
 		six_parts_created,
 		parts_animated,
 		no_damage_during_windup and sword_hit_part and sword_animated and attack_has_recovery,
@@ -126,6 +129,7 @@ func _ready() -> void:
 		dash_attack_worked,
 		low_attack_worked,
 		spell_worked,
+		mana_regenerated,
 	])
 
 	var passed := six_parts_created and independent_health and destroyed_part_hidden \
@@ -133,7 +137,7 @@ func _ready() -> void:
 		and sword_hit_part and sword_animated and attack_has_recovery \
 		and dash_iframe_worked and room_walls_cover_height \
 		and air_attack_worked and dash_attack_worked \
-		and low_attack_worked and spell_worked
+		and low_attack_worked and spell_worked and mana_regenerated
 	get_tree().quit(0 if passed else 1)
 
 
