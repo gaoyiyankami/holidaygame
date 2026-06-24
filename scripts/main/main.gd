@@ -3,12 +3,25 @@ extends Node2D
 const ENEMY_SCENE := preload("res://scenes/enemies/training_dummy.tscn")
 const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
 const MAX_CLIENTS := 7
+const PVP_KILLS_TO_WIN := 8
+const PVP_SPAWNS := [
+	Vector2(160, 610),
+	Vector2(1120, 610),
+	Vector2(300, 330),
+	Vector2(980, 330),
+	Vector2(500, 610),
+	Vector2(780, 610),
+	Vector2(470, 330),
+	Vector2(810, 330),
+]
 
 var _wave: int = 1
 var _current_enemy: TrainingDummy
 var _upgrade_open: bool = false
 var _network_players: Dictionary = {}
 var _pvp_mode: bool = false
+var _pvp_kills: Dictionary = {}
+var _pvp_round_ending: bool = false
 
 @onready var _player: Player = $Player
 @onready var _enemy_spawn: Marker2D = $EnemySpawn
@@ -32,6 +45,7 @@ var _pvp_mode: bool = false
 @onready var _single_button: Button = $UI/StartMenu/Margin/VBox/SingleButton
 @onready var _multi_button: Button = $UI/StartMenu/Margin/VBox/MultiButton
 @onready var _back_button: Button = $UI/NetworkPanel/VBox/BackButton
+@onready var _pvp_score_label: Label = $UI/PvPScoreLabel
 
 
 func _ready() -> void:
@@ -40,6 +54,7 @@ func _ready() -> void:
 	_player.body_parts_changed.connect(_on_player_body_parts_changed)
 	_player.stats_changed.connect(_on_player_stats_changed)
 	_player.died.connect(_on_player_died)
+	_player.pvp_defeated.connect(_on_pvp_player_defeated)
 	_attack_button.pressed.connect(_choose_attack_upgrade)
 	_speed_button.pressed.connect(_choose_speed_upgrade)
 	_health_button.pressed.connect(_choose_health_upgrade)
@@ -64,6 +79,7 @@ func _ready() -> void:
 	_player.set_controls_enabled(false)
 	_network_panel.visible = false
 	_set_game_active(false)
+	_set_pvp_mode(false)
 	if _is_dedicated_server():
 		_port_input.value = _server_port_from_args()
 		call_deferred("_host_game")
@@ -123,6 +139,7 @@ func _host_game() -> void:
 	multiplayer.multiplayer_peer = peer
 	_prepare_existing_player_for_network()
 	_network_players[1] = true
+	_pvp_kills[1] = 0
 	_network_status.text = "主机已开启，端口 %d（最多 8 人）" % port
 	_network_panel.visible = false
 	_set_game_active(true)
@@ -180,6 +197,9 @@ func _set_pvp_mode(enabled: bool) -> void:
 			var shape := collision.get_node_or_null("CollisionShape2D") as CollisionShape2D
 			if is_instance_valid(shape):
 				shape.disabled = not enabled
+		elif collision is Area2D:
+			(collision as Area2D).monitoring = enabled
+			(collision as Area2D).monitorable = enabled
 	$PlatformLeft.visible = not enabled
 	$PlatformRight.visible = not enabled
 	$PlatformLeft/CollisionShape2D.disabled = enabled
@@ -188,8 +208,12 @@ func _set_pvp_mode(enabled: bool) -> void:
 		_current_enemy.visible = not enabled
 		_current_enemy.set_physics_process(not enabled)
 	_wave_label.visible = not enabled
+	_pvp_score_label.visible = enabled
+	for node in get_tree().get_nodes_in_group("player"):
+		(node as Player).set_pvp_enabled(enabled)
 	if enabled:
 		_room_title("PvP 竞技场")
+		_update_pvp_scoreboard()
 	else:
 		_room_title("第一战斗房间 · 废弃大厅")
 
@@ -232,7 +256,10 @@ func _spawn_network_player(peer_id: int) -> void:
 	player.position = Vector2(170 + (_network_players.size() % 4) * 54, 610)
 	add_child(player)
 	player.configure_network_authority(peer_id)
+	player.set_pvp_enabled(_pvp_mode)
+	player.pvp_defeated.connect(_on_pvp_player_defeated)
 	_network_players[peer_id] = true
+	_pvp_kills[peer_id] = 0
 	if peer_id == multiplayer.get_unique_id():
 		_bind_local_player(player)
 	_network_status.text = "当前玩家：%d / 8" % _network_players.size()
@@ -244,6 +271,8 @@ func _remove_network_player(peer_id: int) -> void:
 	if is_instance_valid(player):
 		player.queue_free()
 	_network_players.erase(peer_id)
+	_pvp_kills.erase(peer_id)
+	_update_pvp_scoreboard()
 	_network_status.text = "当前玩家：%d / 8" % _network_players.size()
 
 
@@ -254,6 +283,8 @@ func _bind_local_player(player: Player) -> void:
 	_player.body_parts_changed.connect(_on_player_body_parts_changed)
 	_player.stats_changed.connect(_on_player_stats_changed)
 	_player.died.connect(_on_player_died)
+	if not _player.pvp_defeated.is_connected(_on_pvp_player_defeated):
+		_player.pvp_defeated.connect(_on_pvp_player_defeated)
 	_on_player_health_changed(_player.get_health(), _player.max_health)
 	_on_player_mana_changed(_player.get_mana(), _player.max_mana)
 
@@ -338,3 +369,85 @@ func _on_player_died() -> void:
 	_status_label.visible = true
 	await get_tree().create_timer(1.2).timeout
 	get_tree().reload_current_scene()
+
+
+func _on_pvp_player_defeated(victim_peer_id: int, killer_peer_id: int) -> void:
+	if not _pvp_mode or not multiplayer.is_server() or _pvp_round_ending:
+		return
+	if killer_peer_id > 0 and killer_peer_id != victim_peer_id and _network_players.has(killer_peer_id):
+		_pvp_kills[killer_peer_id] = int(_pvp_kills.get(killer_peer_id, 0)) + 1
+		var killer := get_node_or_null("Player_%d" % killer_peer_id) as Player
+		if is_instance_valid(killer):
+			killer.apply_pvp_upgrade.rpc(int(_pvp_kills[killer_peer_id]) - 1)
+	_sync_pvp_scores.rpc(_pvp_kills)
+	_respawn_pvp_player.rpc(victim_peer_id, _spawn_for_peer(victim_peer_id))
+	if int(_pvp_kills.get(killer_peer_id, 0)) >= PVP_KILLS_TO_WIN:
+		_finish_pvp_round(killer_peer_id)
+
+
+func _finish_pvp_round(winner_peer_id: int) -> void:
+	if _pvp_round_ending:
+		return
+	_pvp_round_ending = true
+	_show_pvp_winner.rpc(winner_peer_id)
+	await get_tree().create_timer(3.0).timeout
+	_pvp_kills.clear()
+	for peer_id in _network_players:
+		_pvp_kills[peer_id] = 0
+	_reset_pvp_round.rpc()
+	_pvp_round_ending = false
+
+
+@rpc("authority", "call_local", "reliable")
+func _respawn_pvp_player(peer_id: int, spawn_position: Vector2) -> void:
+	var player := get_node_or_null("Player_%d" % peer_id) as Player
+	if is_instance_valid(player):
+		player.reset_for_pvp(spawn_position)
+		player.set_pvp_enabled(true)
+
+
+@rpc("authority", "call_local", "reliable")
+func _show_pvp_winner(winner_peer_id: int) -> void:
+	for node in get_tree().get_nodes_in_group("player"):
+		var player := node as Player
+		player.set_king(player.get_multiplayer_authority() == winner_peer_id)
+		player.set_controls_enabled(false)
+	_status_label.text = "玩家 %d 获胜！3 秒后重置" % winner_peer_id
+	_status_label.visible = true
+
+
+@rpc("authority", "call_local", "reliable")
+func _reset_pvp_round() -> void:
+	for node in get_tree().get_nodes_in_group("player"):
+		var player := node as Player
+		player.set_king(false)
+		player.reset_for_pvp(_spawn_for_peer(player.get_multiplayer_authority()))
+	_status_label.visible = false
+	_update_pvp_scoreboard()
+
+
+@rpc("authority", "call_local", "reliable")
+func _sync_pvp_scores(kills: Dictionary) -> void:
+	_pvp_kills = kills.duplicate()
+	_update_pvp_scoreboard()
+
+
+func _update_pvp_scoreboard() -> void:
+	var lines: Array[String] = ["击杀榜（先到 %d 胜利）" % PVP_KILLS_TO_WIN]
+	var ids := _pvp_kills.keys()
+	ids.sort()
+	for peer_id in ids:
+		lines.append("玩家 %d：%d" % [peer_id, int(_pvp_kills[peer_id])])
+	_pvp_score_label.text = "\n".join(lines)
+
+
+func _spawn_for_peer(peer_id: int) -> Vector2:
+	return PVP_SPAWNS[(peer_id - 1) % PVP_SPAWNS.size()]
+
+
+func get_pvp_kills(peer_id: int) -> int:
+	return int(_pvp_kills.get(peer_id, 0))
+
+
+func is_pvp_round_ending() -> bool:
+	return _pvp_round_ending

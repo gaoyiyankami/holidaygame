@@ -17,6 +17,11 @@ func _ready() -> void:
 	var player_ready := main.has_node("Player_1")
 	var pvp_map_ready: bool = main.get_node("PvPMap").visible \
 		and not main.get_node("TrainingDummy").visible
+	var traps_active := true
+	for node in main.get_node("PvPMap").get_children():
+		if node is PvPTrap and not (node as Area2D).monitoring:
+			traps_active = false
+	var body_health_at_top: bool = main.get_node("UI/BodyPartsPanel").position.y <= 10.0
 	main.call("_spawn_network_player", 2)
 	var remote_player := main.get_node("Player_2") as Player
 	var remote_leg: BodyPart
@@ -47,8 +52,18 @@ func _ready() -> void:
 	var attack_effect_synced: bool = remote_player.get_node(
 		"Visual/SwordPivot/AttackArea/SlashVisual"
 	).visible
+	var host_player := main.get_node("Player_1") as Player
+	var attack_before := host_player.attack_damage
+	main.call("_on_pvp_player_defeated", 2, 1)
+	var kill_grants_upgrade := main.get_pvp_kills(1) == 1 \
+		and host_player.attack_damage > attack_before
+	var death_removes_upgrades := remote_player.attack_damage == 1
+	main.set("_pvp_kills", {1: 7, 2: 0})
+	main.call("_on_pvp_player_defeated", 2, 1)
+	var eight_kills_wins := main.is_pvp_round_ending() \
+		and host_player.get_node("KingLabel").visible
 	var world_visible_after_start: bool = main.get_node("Player_1").visible
-	print("Network host test: menu=%s port=%s hidden=%s page=%s peer=%s player=%s map=%s visible=%s damage=%s green=%s red=%s effect=%s" % [
+	print("Network host test: menu=%s port=%s hidden=%s page=%s peer=%s player=%s map=%s traps=%s top=%s visible=%s damage=%s green=%s red=%s effect=%s upgrade=%s reset=%s win=%s" % [
 		menu_visible,
 		port_available,
 		world_hidden_before_start,
@@ -56,14 +71,20 @@ func _ready() -> void:
 		peer_ready,
 		player_ready,
 		pvp_map_ready,
+		traps_active,
+		body_health_at_top,
 		world_visible_after_start,
 		pvp_damage_synced,
 		green_dot,
 		red_dot,
 		attack_effect_synced,
+		kill_grants_upgrade,
+		death_removes_upgrades,
+		eight_kills_wins,
 	])
 	multiplayer.multiplayer_peer = null
 	get_tree().quit(0 if menu_visible and port_available and world_hidden_before_start \
 		and separate_network_page and peer_ready and player_ready and pvp_map_ready \
-		and world_visible_after_start and pvp_damage_synced \
-		and green_dot and red_dot and attack_effect_synced else 1)
+		and traps_active and body_health_at_top and world_visible_after_start \
+		and pvp_damage_synced and green_dot and red_dot and attack_effect_synced \
+		and kill_grants_upgrade and death_removes_upgrades and eight_kills_wins else 1)

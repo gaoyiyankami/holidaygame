@@ -29,7 +29,8 @@ func _on_area_entered(area: Area2D) -> void:
 			(part.actor as Player).receive_network_part_damage.rpc(
 				part.part_id,
 				damage,
-				global_position
+				global_position,
+				caster.get_multiplayer_authority() if is_instance_valid(caster) else 0
 			)
 			queue_free()
 		elif part.receive_damage(damage, global_position):

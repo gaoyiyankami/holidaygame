@@ -72,3 +72,14 @@ color = Color(1, 0.82, 0.24, 0.72)
 position = Vector2(0, -70)
 position_smoothing_enabled = true
 position_smoothing_speed = 8.0
+
+[node name="KingLabel" type="Label" parent="."]
+visible = false
+offset_left = -42.0
+offset_top = -82.0
+offset_right = 42.0
+offset_bottom = -48.0
+text = "KING"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(1, 0.78, 0.12, 1)
+theme_override_font_sizes/font_size = 22

@@ -146,6 +146,7 @@ func _ready() -> void:
 	block_torso.receive_damage(2, block_enemy.global_position)
 	var half_damage := block_torso.health == reduced_before - 1
 	player.call("_stop_block")
+	var block_cooldown_started := player.get_block_cooldown_time() >= 0.95
 
 	var shield := player.get_node("Visual/Shield") as Node2D
 	var player_arm := _find_part(player_parts, "left_arm")
@@ -153,7 +154,7 @@ func _ready() -> void:
 	player_arm.receive_damage(999, block_enemy.global_position)
 	var arm_break_disables_block := not shield.visible and not player.can_block()
 
-	print("Body parts test: base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s half=%s arm_break=%s" % [
+	print("Body parts test: base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s half=%s cooldown=%s arm_break=%s" % [
 		six_parts_created,
 		dots_centered,
 		parts_animated,
@@ -167,6 +168,7 @@ func _ready() -> void:
 		mana_regenerated,
 		perfect_blocked,
 		half_damage,
+		block_cooldown_started,
 		arm_break_disables_block,
 	])
 
@@ -177,7 +179,8 @@ func _ready() -> void:
 		and dash_iframe_worked and room_walls_cover_height \
 		and air_attack_worked and dash_attack_worked \
 		and low_attack_worked and spell_worked and mana_regenerated \
-		and perfect_blocked and half_damage and arm_break_disables_block
+		and perfect_blocked and half_damage and block_cooldown_started \
+		and arm_break_disables_block
 	get_tree().quit(0 if passed else 1)
 
 

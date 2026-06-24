@@ -1,8 +1,9 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" path="res://scenes/enemies/training_dummy.tscn" id="2_enemy"]
 [ext_resource type="Script" path="res://scripts/main/main.gd" id="3_main"]
+[ext_resource type="Script" path="res://scripts/combat/pvp_trap.gd" id="4_trap"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape_ground"]
 size = Vector2(1800, 80)
@@ -12,6 +13,9 @@ size = Vector2(280, 32)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape_wall"]
 size = Vector2(40, 720)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape_trap"]
+size = Vector2(90, 24)
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
 bg_color = Color(0.05, 0.07, 0.11, 0.86)
@@ -187,6 +191,32 @@ shape = SubResource("RectangleShape_platform")
 polygon = PackedVector2Array(-140, -16, 140, -16, 140, 16, -140, 16)
 color = Color(0.42, 0.13, 0.18, 1)
 
+[node name="LeftSpikes" type="Area2D" parent="PvPMap"]
+position = Vector2(420, 628)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("4_trap")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="PvPMap/LeftSpikes"]
+shape = SubResource("RectangleShape_trap")
+
+[node name="Visual" type="Polygon2D" parent="PvPMap/LeftSpikes"]
+polygon = PackedVector2Array(-45, 12, -35, -12, -25, 12, -15, -12, -5, 12, 5, -12, 15, 12, 25, -12, 35, 12, 45, -12, 45, 12)
+color = Color(0.85, 0.16, 0.14, 1)
+
+[node name="RightSpikes" type="Area2D" parent="PvPMap"]
+position = Vector2(860, 628)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("4_trap")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="PvPMap/RightSpikes"]
+shape = SubResource("RectangleShape_trap")
+
+[node name="Visual" type="Polygon2D" parent="PvPMap/RightSpikes"]
+polygon = PackedVector2Array(-45, 12, -35, -12, -25, 12, -15, -12, -5, 12, 5, -12, 15, 12, 25, -12, 35, 12, 45, -12, 45, 12)
+color = Color(0.85, 0.16, 0.14, 1)
+
 [node name="Player" parent="." instance=ExtResource("1_player")]
 position = Vector2(170, 610)
 
@@ -249,10 +279,10 @@ theme_override_colors/font_color = Color(0.66, 0.82, 1, 1)
 theme_override_font_sizes/font_size = 20
 
 [node name="BodyPartsPanel" type="PanelContainer" parent="UI"]
-offset_left = 310.0
-offset_top = 176.0
-offset_right = 1010.0
-offset_bottom = 226.0
+offset_left = 290.0
+offset_top = 8.0
+offset_right = 990.0
+offset_bottom = 58.0
 theme_override_styles/panel = SubResource("StyleBox_stats")
 
 [node name="BodyPartsLabel" type="Label" parent="UI/BodyPartsPanel"]
@@ -260,6 +290,17 @@ text = "头部 5/5  身体 8/8  左臂 4/4  右臂 4/4  左腿 5/5  右腿 5/5"
 horizontal_alignment = 1
 theme_override_colors/font_color = Color(0.85, 0.96, 1, 1)
 theme_override_font_sizes/font_size = 17
+
+[node name="PvPScoreLabel" type="Label" parent="UI"]
+visible = false
+offset_left = 1000.0
+offset_top = 245.0
+offset_right = 1250.0
+offset_bottom = 420.0
+text = "PvP 击杀榜"
+horizontal_alignment = 2
+theme_override_colors/font_color = Color(1, 0.82, 0.3, 1)
+theme_override_font_sizes/font_size = 18
 
 [node name="WaveLabel" type="Label" parent="UI"]
 offset_left = 1060.0

@@ -7,6 +7,7 @@ signal destroyed(part: BodyPart)
 var part_id: StringName
 var display_name: String
 var max_health: int
+var base_max_health: int
 var health: int
 var vital: bool
 var actor: Node
@@ -34,6 +35,7 @@ func configure(
 	part_id = id
 	display_name = label
 	max_health = hp
+	base_max_health = hp
 	health = hp
 	vital = is_vital
 	position = part_position
@@ -96,6 +98,16 @@ func receive_damage(amount: int, source_position: Vector2) -> bool:
 func increase_max_health(amount: int, heal_amount: int) -> void:
 	max_health += amount
 	health = mini(health + heal_amount, max_health)
+	_update_status_dot()
+	health_changed.emit(self)
+
+
+func reset_part() -> void:
+	max_health = base_max_health
+	health = max_health
+	visible = true
+	_collision.set_deferred("disabled", false)
+	_visual.modulate = Color.WHITE
 	_update_status_dot()
 	health_changed.emit(self)
 

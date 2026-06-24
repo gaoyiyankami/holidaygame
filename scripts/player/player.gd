@@ -20,6 +20,7 @@ signal body_parts_changed(summary: String)
 signal stats_changed(attack_damage: int, attack_speed_bonus: int)
 signal mana_changed(current_mana: int, max_mana: int)
 signal died
+signal pvp_defeated(victim_peer_id: int, killer_peer_id: int)
 
 @export_category("Movement")
 @export var move_speed: float = 320.0
@@ -55,6 +56,7 @@ signal died
 
 @export_category("Block")
 @export var perfect_block_duration: float = 0.2
+@export var block_cooldown: float = 1.0
 @export var block_damage_reduction: float = 0.5
 @export var block_move_multiplier: float = 0.3
 
@@ -87,9 +89,12 @@ var _dash_multiplier: float = 1.0
 var _animation_time: float = 0.0
 var _is_blocking: bool = false
 var _block_timer: float = 0.0
+var _block_cooldown_timer: float = 0.0
 var _block_facing: float = 1.0
 var _can_block: bool = true
 var _movement_stun_timer: float = 0.0
+var _pvp_enabled: bool = false
+var _last_attacker_peer_id: int = 0
 var _network_target_position: Vector2
 var _network_target_velocity: Vector2
 var _network_facing: float = 1.0
@@ -107,6 +112,7 @@ const MAGIC_BOLT_SCENE := preload("res://scenes/combat/magic_bolt.tscn")
 @onready var _dash_visual: Polygon2D = $Visual/DashVisual
 @onready var _shield: Node2D = $Visual/Shield
 @onready var _camera: Camera2D = $Camera2D
+@onready var _king_label: Label = $KingLabel
 
 
 func _ready() -> void:
@@ -156,6 +162,7 @@ func _update_timers(delta: float) -> void:
 	_hurt_lock_timer = maxf(_hurt_lock_timer - delta, 0.0)
 	_movement_stun_timer = maxf(_movement_stun_timer - delta, 0.0)
 	_dash_cooldown_timer = maxf(_dash_cooldown_timer - delta, 0.0)
+	_block_cooldown_timer = maxf(_block_cooldown_timer - delta, 0.0)
 	_combo_reset_timer = maxf(_combo_reset_timer - delta, 0.0)
 	if _combo_reset_timer <= 0.0 and _attack_phase == AttackPhase.NONE:
 		_combo_step = 0
@@ -331,7 +338,8 @@ func _apply_damage_to_part(part: BodyPart, damage: int) -> bool:
 		(part.actor as Player).receive_network_part_damage.rpc(
 			part.part_id,
 			damage,
-			global_position
+			global_position,
+			multiplayer.get_unique_id()
 		)
 		return true
 	return part.receive_damage(damage, global_position)
@@ -341,8 +349,10 @@ func _apply_damage_to_part(part: BodyPart, damage: int) -> bool:
 func receive_network_part_damage(
 	part_id: StringName,
 	damage: int,
-	source_position: Vector2
+	source_position: Vector2,
+	attacker_peer_id: int = 0
 ) -> void:
+	_last_attacker_peer_id = attacker_peer_id
 	var part: BodyPart = _parts.get(part_id)
 	if is_instance_valid(part):
 		part.receive_damage(damage, source_position)
@@ -353,6 +363,55 @@ func configure_network_authority(peer_id: int) -> void:
 	_camera.enabled = peer_id == multiplayer.get_unique_id()
 	if not is_multiplayer_authority():
 		_controls_enabled = false
+
+
+func set_pvp_enabled(enabled: bool) -> void:
+	_pvp_enabled = enabled
+
+
+@rpc("any_peer", "call_local", "reliable")
+func apply_pvp_upgrade(upgrade_index: int) -> void:
+	match upgrade_index % 3:
+		0:
+			apply_attack_upgrade()
+		1:
+			apply_attack_speed_upgrade()
+		2:
+			apply_max_health_upgrade()
+
+
+@rpc("any_peer", "call_local", "reliable")
+func reset_for_pvp(spawn_position: Vector2) -> void:
+	attack_damage = 1
+	_attack_speed_multiplier = 1.0
+	_arm_attack_multiplier = 1.0
+	_attack_damage_multiplier = 1.0
+	_movement_multiplier = 1.0
+	_jump_multiplier = 1.0
+	_dash_multiplier = 1.0
+	_can_block = true
+	_block_cooldown_timer = 0.0
+	_stop_block(false)
+	_is_dead = false
+	_last_attacker_peer_id = 0
+	collision_layer = 2
+	collision_mask = 1
+	modulate = Color.WHITE
+	rotation = 0.0
+	_shield.visible = true
+	_sword_pivot.position = Vector2(14, -8)
+	for part in _parts.values():
+		(part as BodyPart).reset_part()
+	global_position = spawn_position
+	velocity = Vector2.ZERO
+	_controls_enabled = is_multiplayer_authority()
+	_refresh_body_health()
+	stats_changed.emit(attack_damage, get_attack_speed_bonus())
+
+
+@rpc("any_peer", "call_local", "reliable")
+func set_king(enabled: bool) -> void:
+	_king_label.visible = enabled
 
 
 @rpc("authority", "call_remote", "unreliable_ordered")
@@ -484,7 +543,7 @@ func _update_block() -> void:
 	if not _can_block or _is_dead:
 		_stop_block()
 		return
-	if Input.is_action_just_pressed("move_down") and is_on_floor():
+	if Input.is_action_just_pressed("move_down") and is_on_floor() and _block_cooldown_timer <= 0.0:
 		_start_block()
 	if _is_blocking:
 		_block_timer += get_physics_process_delta_time()
@@ -504,9 +563,12 @@ func _start_block() -> void:
 		_sync_combat_effect.rpc("block", 0, 0, _block_facing)
 
 
-func _stop_block() -> void:
+func _stop_block(start_cooldown: bool = true) -> void:
+	var was_blocking := _is_blocking
 	_is_blocking = false
 	_block_timer = 0.0
+	if was_blocking and start_cooldown:
+		_block_cooldown_timer = block_cooldown
 	if is_instance_valid(_shield):
 		_shield.rotation = 0.0
 		_shield.modulate = Color.WHITE
@@ -554,6 +616,10 @@ func is_blocking() -> bool:
 
 func can_block() -> bool:
 	return _can_block
+
+
+func get_block_cooldown_time() -> float:
+	return _block_cooldown_timer
 
 
 func get_movement_stun_time() -> float:
@@ -883,6 +949,11 @@ func _die() -> void:
 	_is_dead = true
 	collision_layer = 0
 	collision_mask = 1
+	if _pvp_enabled:
+		_controls_enabled = false
+		modulate = Color(1.0, 1.0, 1.0, 0.25)
+		pvp_defeated.emit(get_multiplayer_authority(), _last_attacker_peer_id)
+		return
 	var death_tween := create_tween()
 	death_tween.set_parallel(true)
 	death_tween.tween_property(self, "modulate:a", 0.0, 0.55)
