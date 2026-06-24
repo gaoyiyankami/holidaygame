@@ -89,7 +89,34 @@ func _ready() -> void:
 	var dash_attack_worked := player.get_attack_kind() == 2 \
 		and _total_health(dash_enemy.get_node("Visual/Parts").get_children()) < dash_before
 
-	print("Body parts test: base=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s" % [
+	await get_tree().create_timer(0.35).timeout
+	dash_enemy.position = Vector2(1100, 602)
+	var low_enemy := special_enemy_scene.instantiate() as TrainingDummy
+	$Main.add_child(low_enemy)
+	low_enemy.set_physics_process(false)
+	low_enemy.position = player.position + Vector2(62, 18)
+	await get_tree().physics_frame
+	var low_before := _total_health(low_enemy.get_node("Visual/Parts").get_children())
+	player.call("_start_attack", 1, 3)
+	await get_tree().create_timer(0.22).timeout
+	var low_attack_worked := player.get_attack_kind() == 3 \
+		and _total_health(low_enemy.get_node("Visual/Parts").get_children()) < low_before
+
+	await get_tree().create_timer(0.35).timeout
+	low_enemy.position = Vector2(1100, 602)
+	var spell_enemy := special_enemy_scene.instantiate() as TrainingDummy
+	$Main.add_child(spell_enemy)
+	spell_enemy.set_physics_process(false)
+	spell_enemy.position = player.position + Vector2(150, 0)
+	await get_tree().physics_frame
+	var spell_before := _total_health(spell_enemy.get_node("Visual/Parts").get_children())
+	var mana_before := player.get_mana()
+	var spell_cast := player.cast_spell()
+	await get_tree().create_timer(0.35).timeout
+	var spell_worked := spell_cast and player.get_mana() == mana_before - player.spell_cost \
+		and _total_health(spell_enemy.get_node("Visual/Parts").get_children()) < spell_before
+
+	print("Body parts test: base=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s" % [
 		six_parts_created,
 		parts_animated,
 		no_damage_during_windup and sword_hit_part and sword_animated and attack_has_recovery,
@@ -97,13 +124,16 @@ func _ready() -> void:
 		room_walls_cover_height,
 		air_attack_worked,
 		dash_attack_worked,
+		low_attack_worked,
+		spell_worked,
 	])
 
 	var passed := six_parts_created and independent_health and destroyed_part_hidden \
 		and arm_debuff_applied and parts_animated and no_damage_during_windup \
 		and sword_hit_part and sword_animated and attack_has_recovery \
 		and dash_iframe_worked and room_walls_cover_height \
-		and air_attack_worked and dash_attack_worked
+		and air_attack_worked and dash_attack_worked \
+		and low_attack_worked and spell_worked
 	get_tree().quit(0 if passed else 1)
 
 

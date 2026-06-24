@@ -9,6 +9,7 @@ var _upgrade_open: bool = false
 @onready var _player: Player = $Player
 @onready var _enemy_spawn: Marker2D = $EnemySpawn
 @onready var _health_label: Label = $UI/HealthPanel/HealthLabel
+@onready var _mana_label: Label = $UI/ManaPanel/ManaLabel
 @onready var _body_parts_label: Label = $UI/BodyPartsPanel/BodyPartsLabel
 @onready var _stats_label: Label = $UI/StatsPanel/StatsLabel
 @onready var _wave_label: Label = $UI/WaveLabel
@@ -21,6 +22,7 @@ var _upgrade_open: bool = false
 
 func _ready() -> void:
 	_player.health_changed.connect(_on_player_health_changed)
+	_player.mana_changed.connect(_on_player_mana_changed)
 	_player.body_parts_changed.connect(_on_player_body_parts_changed)
 	_player.stats_changed.connect(_on_player_stats_changed)
 	_player.died.connect(_on_player_died)
@@ -29,6 +31,7 @@ func _ready() -> void:
 	_health_button.pressed.connect(_choose_health_upgrade)
 
 	_on_player_health_changed(_player.get_health(), _player.max_health)
+	_on_player_mana_changed(_player.get_mana(), _player.max_mana)
 	_on_player_stats_changed(_player.attack_damage, _player.get_attack_speed_bonus())
 	_update_wave_label()
 
@@ -93,6 +96,10 @@ func _spawn_next_enemy() -> void:
 
 func _on_player_health_changed(current_health: int, max_health: int) -> void:
 	_health_label.text = "玩家生命  %d / %d" % [current_health, max_health]
+
+
+func _on_player_mana_changed(current_mana: int, max_mana: int) -> void:
+	_mana_label.text = "魔法  %d / %d" % [current_mana, max_mana]
 
 
 func _on_player_body_parts_changed(summary: String) -> void:

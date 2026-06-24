@@ -51,6 +51,14 @@ dash={
 "deadzone": 0.5,
 "events": [Object(InputEventKey,"physical_keycode":75), Object(InputEventKey,"physical_keycode":4194325)]
 }
+move_down={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":83), Object(InputEventKey,"physical_keycode":4194314)]
+}
+spell={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"physical_keycode":76)]
+}
 
 [layer_names]
 

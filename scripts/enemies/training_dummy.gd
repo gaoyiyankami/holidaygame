@@ -283,19 +283,19 @@ func _animate_body_parts() -> void:
 	var step := sin(phase)
 	var breathe := sin(_animation_time * 1.9)
 
-	_animate_part("torso", Vector2(0, breathe * 0.6), step * 0.018 if moving else 0.0)
-	_animate_part("head", Vector2(0, breathe * 0.75), -step * 0.02 if moving else 0.0)
-	_animate_part("left_leg", Vector2(step, -absf(step) * 0.8), -step * 0.18 if moving else 0.0)
-	_animate_part("right_leg", Vector2(-step, -absf(step) * 0.8), step * 0.18 if moving else 0.0)
-	_animate_part("left_arm", Vector2(step, 0), step * 0.2 if moving else breathe * 0.02)
-	_animate_part("right_arm", Vector2(-step, 0), -step * 0.2 if moving else -breathe * 0.02)
+	_animate_part("torso", Vector2(0, breathe * 0.6), 0.0)
+	_animate_part("head", Vector2(0, breathe * 0.75), 0.0)
+	_animate_part("left_leg", Vector2(step * 2.0, -maxf(step, 0.0) * 1.6), 0.0)
+	_animate_part("right_leg", Vector2(-step * 2.0, maxf(step, 0.0) * 1.6), 0.0)
+	_animate_part("left_arm", Vector2(step * 1.7, -step * 0.8), 0.0)
+	_animate_part("right_arm", Vector2(-step * 1.7, step * 0.8), 0.0)
 
 	if _state == State.WINDUP:
-		_animate_part("right_arm", Vector2(-2, -3), deg_to_rad(-32.0))
+		_animate_part("right_arm", Vector2(-4, -4), 0.0)
 	elif _state == State.ATTACK:
-		_animate_part("right_arm", Vector2(4, 0), deg_to_rad(42.0))
+		_animate_part("right_arm", Vector2(6, 1), 0.0)
 	elif _state == State.RECOVERY:
-		_animate_part("right_arm", Vector2(1, 0), deg_to_rad(12.0))
+		_animate_part("right_arm", Vector2(2, 0), 0.0)
 
 
 func _animate_part(id: StringName, offset: Vector2, angle: float) -> void:

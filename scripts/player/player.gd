@@ -12,11 +12,13 @@ enum AttackKind {
 	NORMAL,
 	AIR,
 	DASH,
+	LOW,
 }
 
 signal health_changed(current_health: int, max_health: int)
 signal body_parts_changed(summary: String)
 signal stats_changed(attack_damage: int, attack_speed_bonus: int)
+signal mana_changed(current_mana: int, max_mana: int)
 signal died
 
 @export_category("Movement")
@@ -35,6 +37,10 @@ signal died
 @export var attack_damage: int = 1
 @export var combo_reset_time: float = 0.5
 
+@export_category("Magic")
+@export var max_mana: int = 100
+@export var spell_cost: int = 20
+
 @export_category("Dash")
 @export var dash_speed: float = 760.0
 @export var dash_duration: float = 0.16
@@ -48,6 +54,7 @@ signal died
 
 var _gravity: float = 1600.0
 var _health: int
+var _mana: int
 var _coyote_timer: float = 0.0
 var _jump_buffer_timer: float = 0.0
 var _attack_timer: float = 0.0
@@ -75,6 +82,8 @@ var _hit_targets: Dictionary = {}
 var _parts: Dictionary = {}
 var _sword_tween: Tween
 
+const MAGIC_BOLT_SCENE := preload("res://scenes/combat/magic_bolt.tscn")
+
 @onready var _visual: Node2D = $Visual
 @onready var _parts_root: Node2D = $Visual/Parts
 @onready var _sword_pivot: Node2D = $Visual/SwordPivot
@@ -88,6 +97,8 @@ func _ready() -> void:
 	_gravity = float(ProjectSettings.get_setting("physics/2d/default_gravity", 1600.0))
 	_create_body_parts()
 	_refresh_body_health()
+	_mana = max_mana
+	mana_changed.emit(_mana, max_mana)
 
 
 func _physics_process(delta: float) -> void:
@@ -101,6 +112,7 @@ func _physics_process(delta: float) -> void:
 		_handle_jump()
 		_handle_attack(delta)
 		_handle_dash()
+		_handle_spell()
 	else:
 		_apply_gravity(delta)
 		if _is_dead:
@@ -166,6 +178,8 @@ func _handle_attack(delta: float) -> void:
 				_start_attack(1, AttackKind.DASH)
 			elif not is_on_floor():
 				_start_attack(1, AttackKind.AIR)
+			elif Input.is_action_pressed("move_down"):
+				_start_attack(1, AttackKind.LOW)
 			else:
 				_start_attack((_combo_step % 3) + 1, AttackKind.NORMAL)
 
@@ -202,6 +216,9 @@ func _start_attack(step: int, kind: AttackKind = AttackKind.NORMAL) -> void:
 		AttackKind.DASH:
 			_attack_area.position = Vector2(72, 0)
 			_slash_visual.scale = Vector2(1.45, 0.85)
+		AttackKind.LOW:
+			_attack_area.position = Vector2(58, 24)
+			_slash_visual.scale = Vector2(1.25, 0.65)
 		_:
 			_attack_area.position = Vector2(48.0 + step * 5.0, 0)
 	_play_sword_windup(step)
@@ -257,6 +274,8 @@ func _damage_overlapping_enemies() -> void:
 			base_damage = roundi(base_damage * 1.35)
 		elif _attack_kind == AttackKind.DASH:
 			base_damage = roundi(base_damage * 1.6)
+		elif _attack_kind == AttackKind.LOW:
+			base_damage = roundi(base_damage * 1.2)
 		var damage := maxi(1, roundi(base_damage * _attack_damage_multiplier))
 		if part.receive_damage(damage, global_position):
 			_hit_targets[target_id] = true
@@ -267,6 +286,8 @@ func _get_windup_duration(step: int) -> float:
 		return 0.1
 	if _attack_kind == AttackKind.DASH:
 		return 0.07
+	if _attack_kind == AttackKind.LOW:
+		return 0.11
 	match step:
 		1:
 			return 0.12
@@ -281,6 +302,8 @@ func _get_active_duration(step: int) -> float:
 		return 0.16
 	if _attack_kind == AttackKind.DASH:
 		return 0.14
+	if _attack_kind == AttackKind.LOW:
+		return 0.13
 	match step:
 		1:
 			return 0.11
@@ -295,6 +318,8 @@ func _get_recovery_duration(step: int) -> float:
 		return 0.2
 	if _attack_kind == AttackKind.DASH:
 		return 0.18
+	if _attack_kind == AttackKind.LOW:
+		return 0.17
 	match step:
 		1:
 			return 0.14
@@ -308,6 +333,12 @@ func _handle_dash() -> void:
 	if not Input.is_action_just_pressed("dash") or _dash_cooldown_timer > 0.0:
 		return
 	start_dash()
+
+
+func _handle_spell() -> void:
+	if not Input.is_action_just_pressed("spell"):
+		return
+	cast_spell()
 
 
 func start_dash() -> void:
@@ -385,6 +416,24 @@ func on_body_part_damaged(part: BodyPart, _amount: int, source_position: Vector2
 
 func get_health() -> int:
 	return _health
+
+
+func get_mana() -> int:
+	return _mana
+
+
+func cast_spell() -> bool:
+	if _mana < spell_cost:
+		return false
+	_mana -= spell_cost
+	mana_changed.emit(_mana, max_mana)
+	var bolt := MAGIC_BOLT_SCENE.instantiate() as MagicBolt
+	bolt.direction = signf(_visual.scale.x)
+	if is_zero_approx(bolt.direction):
+		bolt.direction = 1.0
+	bolt.global_position = global_position + Vector2(bolt.direction * 42.0, -10.0)
+	get_tree().current_scene.add_child(bolt)
+	return true
 
 
 func set_controls_enabled(enabled: bool) -> void:
@@ -493,6 +542,8 @@ func _play_sword_windup(step: int) -> void:
 		start_angle = deg_to_rad(-25.0)
 	elif _attack_kind == AttackKind.DASH:
 		start_angle = deg_to_rad(-12.0)
+	elif _attack_kind == AttackKind.LOW:
+		start_angle = deg_to_rad(-32.0)
 	if step == 3:
 		start_angle = deg_to_rad(-105.0)
 	_sword_tween = create_tween()
@@ -512,6 +563,8 @@ func _play_sword_swing(step: int) -> void:
 		end_angle = deg_to_rad(112.0)
 	elif _attack_kind == AttackKind.DASH:
 		end_angle = deg_to_rad(8.0)
+	elif _attack_kind == AttackKind.LOW:
+		end_angle = deg_to_rad(38.0)
 	if step == 3:
 		end_angle = deg_to_rad(105.0)
 	_sword_tween = create_tween()
@@ -547,23 +600,29 @@ func _animate_body_parts() -> void:
 	var breathe := sin(_animation_time * 2.2)
 
 	_animate_part("torso", Vector2(0, breathe * 0.7), step * 0.02 if moving else 0.0)
-	_animate_part("head", Vector2(0, breathe * 0.85), -step * 0.025 if moving else 0.0)
+	_animate_part("head", Vector2(0, breathe * 0.85), 0.0)
 
 	if airborne:
-		_animate_part("left_arm", Vector2(1, -2), deg_to_rad(-12.0))
-		_animate_part("right_arm", Vector2(-1, -2), deg_to_rad(12.0))
-		_animate_part("left_leg", Vector2(1, -2), deg_to_rad(8.0))
-		_animate_part("right_leg", Vector2(-1, 1), deg_to_rad(-8.0))
+		_animate_part("left_arm", Vector2(-1, -2), 0.0)
+		_animate_part("right_arm", Vector2(1, -2), 0.0)
+		_animate_part("left_leg", Vector2(2, -3), 0.0)
+		_animate_part("right_leg", Vector2(-2, 1), 0.0)
 	elif moving:
-		_animate_part("left_arm", Vector2(step * 1.5, 0), step * 0.24)
-		_animate_part("right_arm", Vector2(-step * 1.5, 0), -step * 0.24)
-		_animate_part("left_leg", Vector2(step * 1.2, absf(step) * -1.0), -step * 0.2)
-		_animate_part("right_leg", Vector2(-step * 1.2, absf(step) * -1.0), step * 0.2)
+		_animate_part("left_arm", Vector2(step * 2.2, -step * 1.0), 0.0)
+		_animate_part("right_arm", Vector2(-step * 2.2, step * 1.0), 0.0)
+		_animate_part("left_leg", Vector2(step * 2.6, -maxf(step, 0.0) * 2.0), 0.0)
+		_animate_part("right_leg", Vector2(-step * 2.6, maxf(step, 0.0) * 2.0), 0.0)
 	else:
 		_animate_part("left_arm", Vector2.ZERO, breathe * 0.025)
 		_animate_part("right_arm", Vector2.ZERO, -breathe * 0.025)
 		_animate_part("left_leg", Vector2.ZERO, 0.0)
 		_animate_part("right_leg", Vector2.ZERO, 0.0)
+
+	if _attack_kind == AttackKind.LOW and _attack_phase != AttackPhase.NONE:
+		_animate_part("torso", Vector2(0, 7), 0.0)
+		_animate_part("head", Vector2(0, 7), 0.0)
+		_animate_part("left_leg", Vector2(-2, 4), 0.0)
+		_animate_part("right_leg", Vector2(2, 4), 0.0)
 
 	if _attack_phase != AttackPhase.NONE:
 		var attack_arm: BodyPart = _parts.get("right_arm")
