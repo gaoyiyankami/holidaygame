@@ -14,22 +14,31 @@ func _ready() -> void:
 
 	await get_tree().create_timer(3.0).timeout
 	var player_was_attacked := player.get_health() < player.max_health
+	enemy.take_damage(999, player.global_position)
+	await get_tree().create_timer(0.1).timeout
 
-	print("Combat smoke test: moved=%s attacked=%s enemy_x=%.1f player_hp=%d" % [
+	var upgrade_panel := $Main/UI/UpgradePanel as PanelContainer
+	var upgrade_opened := upgrade_panel.visible
+	var attack_button := $Main/UI/UpgradePanel/Margin/VBox/Choices/AttackButton as Button
+	attack_button.pressed.emit()
+	await get_tree().create_timer(0.8).timeout
+
+	var attack_upgraded := player.attack_damage == 2
+	var next_enemy: TrainingDummy
+	for child in $Main.get_children():
+		if child is TrainingDummy:
+			next_enemy = child
+			break
+	var next_wave_spawned := is_instance_valid(next_enemy)
+
+	print("Combat smoke test: moved=%s attacked=%s upgrade=%s attack_upgraded=%s next_wave=%s" % [
 		enemy_moved,
 		player_was_attacked,
-		enemy.global_position.x,
-		player.get_health(),
-	])
-	print("Enemy diagnostics: physics=%s state=%s target=%s velocity=%s" % [
-		enemy.is_physics_processing(),
-		enemy.get("_state"),
-		is_instance_valid(enemy.get("_target")),
-		enemy.velocity,
-	])
-	print("Player group diagnostics: member=%s count=%d" % [
-		player.is_in_group("player"),
-		get_tree().get_nodes_in_group("player").size(),
+		upgrade_opened,
+		attack_upgraded,
+		next_wave_spawned,
 	])
 
-	get_tree().quit(0 if enemy_moved and player_was_attacked else 1)
+	var passed := enemy_moved and player_was_attacked and upgrade_opened \
+		and attack_upgraded and next_wave_spawned
+	get_tree().quit(0 if passed else 1)

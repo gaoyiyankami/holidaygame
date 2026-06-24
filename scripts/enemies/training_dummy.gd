@@ -1,6 +1,8 @@
 class_name TrainingDummy
 extends CharacterBody2D
 
+signal defeated
+
 enum State {
 	IDLE,
 	CHASE,
@@ -185,6 +187,7 @@ func _die() -> void:
 	collision_layer = 0
 	collision_mask = 0
 	_health_label.text = "击败！"
+	defeated.emit()
 	var death_tween := create_tween()
 	death_tween.set_parallel(true)
 	death_tween.tween_property(self, "modulate:a", 0.0, 0.35)

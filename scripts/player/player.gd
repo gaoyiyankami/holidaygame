@@ -2,6 +2,7 @@ class_name Player
 extends CharacterBody2D
 
 signal health_changed(current_health: int, max_health: int)
+signal stats_changed(attack_damage: int, attack_speed_bonus: int)
 signal died
 
 @export_category("Movement")
@@ -46,6 +47,8 @@ var _dash_direction: float = 1.0
 var _invincibility_timer: float = 0.0
 var _hurt_lock_timer: float = 0.0
 var _is_dead: bool = false
+var _controls_enabled: bool = true
+var _attack_speed_multiplier: float = 1.0
 var _hit_targets: Dictionary = {}
 var _hurt_tween: Tween
 
@@ -67,7 +70,7 @@ func _physics_process(delta: float) -> void:
 	_update_timers(delta)
 	if _dash_timer > 0.0:
 		_update_dash(delta)
-	elif not _is_dead and _hurt_lock_timer <= 0.0:
+	elif not _is_dead and _controls_enabled and _hurt_lock_timer <= 0.0:
 		_apply_gravity(delta)
 		_handle_horizontal_movement(delta)
 		_handle_jump()
@@ -148,13 +151,13 @@ func _handle_attack(delta: float) -> void:
 			_start_attack(_combo_step + 1)
 		else:
 			_combo_queued = false
-			_attack_cooldown_timer = 0.12 if _combo_step < 3 else 0.26
+			_attack_cooldown_timer = (0.12 if _combo_step < 3 else 0.26) / _attack_speed_multiplier
 			_combo_reset_timer = combo_reset_time
 
 
 func _start_attack(step: int) -> void:
 	_combo_step = step
-	_attack_timer = _get_attack_duration(step)
+	_attack_timer = _get_attack_duration(step) / _attack_speed_multiplier
 	_hit_targets.clear()
 	_slash_visual.visible = true
 	_slash_visual.scale = Vector2(0.9 + step * 0.12, 0.82 + step * 0.08)
@@ -236,6 +239,36 @@ func take_damage(amount: int, source_position: Vector2) -> void:
 
 func get_health() -> int:
 	return _health
+
+
+func set_controls_enabled(enabled: bool) -> void:
+	_controls_enabled = enabled
+	if not enabled:
+		velocity.x = 0.0
+		_attack_timer = 0.0
+		_combo_queued = false
+		_slash_visual.visible = false
+		_dash_visual.visible = false
+
+
+func apply_attack_upgrade() -> void:
+	attack_damage += 1
+	stats_changed.emit(attack_damage, get_attack_speed_bonus())
+
+
+func apply_attack_speed_upgrade() -> void:
+	_attack_speed_multiplier += 0.15
+	stats_changed.emit(attack_damage, get_attack_speed_bonus())
+
+
+func apply_max_health_upgrade() -> void:
+	max_health += 2
+	_health = mini(_health + 2, max_health)
+	health_changed.emit(_health, max_health)
+
+
+func get_attack_speed_bonus() -> int:
+	return roundi((_attack_speed_multiplier - 1.0) * 100.0)
 
 
 func _flash_on_hit() -> void:
