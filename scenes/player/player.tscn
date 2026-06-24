@@ -1,0 +1,31 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/player/player.gd" id="1_player"]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape_player"]
+radius = 20.0
+height = 64.0
+
+[node name="Player" type="CharacterBody2D"]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("1_player")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, 2)
+shape = SubResource("CapsuleShape_player")
+
+[node name="Visual" type="Node2D" parent="."]
+
+[node name="Body" type="Polygon2D" parent="Visual"]
+polygon = PackedVector2Array(-20, -32, 20, -32, 24, 24, 0, 34, -24, 24)
+color = Color(0.2, 0.72, 1, 1)
+
+[node name="FacingMarker" type="Polygon2D" parent="Visual"]
+polygon = PackedVector2Array(8, -14, 28, -4, 8, 6)
+color = Color(1, 0.85, 0.25, 1)
+
+[node name="Camera2D" type="Camera2D" parent="."]
+position = Vector2(0, -70)
+position_smoothing_enabled = true
+position_smoothing_speed = 8.0
