@@ -1,9 +1,12 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/enemies/training_dummy.gd" id="1_enemy"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape_enemy"]
 size = Vector2(48, 72)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape_enemy_attack"]
+size = Vector2(70, 58)
 
 [node name="TrainingDummy" type="CharacterBody2D"]
 collision_layer = 4
@@ -13,17 +16,32 @@ script = ExtResource("1_enemy")
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 shape = SubResource("RectangleShape_enemy")
 
-[node name="BodyVisual" type="Polygon2D" parent="."]
+[node name="Visual" type="Node2D" parent="."]
+
+[node name="BodyVisual" type="Polygon2D" parent="Visual"]
 polygon = PackedVector2Array(-24, -36, 24, -36, 28, 26, 0, 38, -28, 26)
 color = Color(0.92, 0.3, 0.34, 1)
 
-[node name="EyeLeft" type="Polygon2D" parent="."]
+[node name="EyeLeft" type="Polygon2D" parent="Visual"]
 polygon = PackedVector2Array(-14, -14, -6, -14, -6, -6, -14, -6)
 color = Color(0.12, 0.06, 0.08, 1)
 
-[node name="EyeRight" type="Polygon2D" parent="."]
+[node name="EyeRight" type="Polygon2D" parent="Visual"]
 polygon = PackedVector2Array(6, -14, 14, -14, 14, -6, 6, -6)
 color = Color(0.12, 0.06, 0.08, 1)
+
+[node name="AttackArea" type="Area2D" parent="Visual"]
+position = Vector2(44, 0)
+collision_layer = 0
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Visual/AttackArea"]
+shape = SubResource("RectangleShape_enemy_attack")
+
+[node name="AttackVisual" type="Polygon2D" parent="Visual/AttackArea"]
+visible = false
+polygon = PackedVector2Array(-16, -30, 22, -24, 36, 0, 22, 24, -16, 30, 8, 0)
+color = Color(1, 0.28, 0.16, 0.75)
 
 [node name="HealthLabel" type="Label" parent="."]
 offset_left = -42.0
