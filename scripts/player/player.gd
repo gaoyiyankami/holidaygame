@@ -57,6 +57,7 @@ var _hurt_tween: Tween
 
 
 func _ready() -> void:
+	add_to_group("player")
 	_gravity = float(ProjectSettings.get_setting("physics/2d/default_gravity", 1600.0))
 	_health = max_health
 	health_changed.emit(_health, max_health)
