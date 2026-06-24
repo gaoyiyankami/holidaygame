@@ -96,11 +96,16 @@ func _ready() -> void:
 	low_enemy.set_physics_process(false)
 	low_enemy.position = player.position + Vector2(62, 18)
 	await get_tree().physics_frame
-	var low_before := _total_health(low_enemy.get_node("Visual/Parts").get_children())
+	var low_parts := low_enemy.get_node("Visual/Parts").get_children()
+	var low_before := _total_health(low_parts)
+	var left_foot := _find_part(low_parts, "left_leg")
+	var right_foot := _find_part(low_parts, "right_leg")
+	var feet_before := left_foot.health + right_foot.health
 	player.call("_start_attack", 1, 3)
 	await get_tree().create_timer(0.22).timeout
 	var low_attack_worked := player.get_attack_kind() == 3 \
-		and _total_health(low_enemy.get_node("Visual/Parts").get_children()) < low_before
+		and _total_health(low_parts) < low_before \
+		and left_foot.health + right_foot.health < feet_before
 
 	await get_tree().create_timer(0.35).timeout
 	low_enemy.position = Vector2(1100, 602)

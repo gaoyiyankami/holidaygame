@@ -232,6 +232,41 @@ horizontal_alignment = 2
 theme_override_colors/font_color = Color(1, 0.84, 0.4, 1)
 theme_override_font_sizes/font_size = 25
 
+[node name="NetworkPanel" type="PanelContainer" parent="UI"]
+offset_left = 1018.0
+offset_top = 82.0
+offset_right = 1260.0
+offset_bottom = 230.0
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="VBox" type="VBoxContainer" parent="UI/NetworkPanel"]
+theme_override_constants/separation = 7
+
+[node name="Title" type="Label" parent="UI/NetworkPanel/VBox"]
+text = "多人联机（最多 8 人）"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 17
+
+[node name="AddressInput" type="LineEdit" parent="UI/NetworkPanel/VBox"]
+placeholder_text = "主机 IP，默认 127.0.0.1"
+text = "127.0.0.1"
+
+[node name="Buttons" type="HBoxContainer" parent="UI/NetworkPanel/VBox"]
+theme_override_constants/separation = 8
+
+[node name="HostButton" type="Button" parent="UI/NetworkPanel/VBox/Buttons"]
+size_flags_horizontal = 3
+text = "创建主机"
+
+[node name="JoinButton" type="Button" parent="UI/NetworkPanel/VBox/Buttons"]
+size_flags_horizontal = 3
+text = "加入"
+
+[node name="NetworkStatus" type="Label" parent="UI/NetworkPanel/VBox"]
+text = "离线模式"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 14
+
 [node name="StatusLabel" type="Label" parent="UI"]
 visible = false
 offset_left = 365.0

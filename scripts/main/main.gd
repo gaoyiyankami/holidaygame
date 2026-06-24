@@ -1,10 +1,14 @@
 extends Node2D
 
 const ENEMY_SCENE := preload("res://scenes/enemies/training_dummy.tscn")
+const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
+const NETWORK_PORT := 7000
+const MAX_CLIENTS := 7
 
 var _wave: int = 1
 var _current_enemy: TrainingDummy
 var _upgrade_open: bool = false
+var _network_players: Dictionary = {}
 
 @onready var _player: Player = $Player
 @onready var _enemy_spawn: Marker2D = $EnemySpawn
@@ -18,6 +22,11 @@ var _upgrade_open: bool = false
 @onready var _attack_button: Button = $UI/UpgradePanel/Margin/VBox/Choices/AttackButton
 @onready var _speed_button: Button = $UI/UpgradePanel/Margin/VBox/Choices/SpeedButton
 @onready var _health_button: Button = $UI/UpgradePanel/Margin/VBox/Choices/HealthButton
+@onready var _network_panel: PanelContainer = $UI/NetworkPanel
+@onready var _address_input: LineEdit = $UI/NetworkPanel/VBox/AddressInput
+@onready var _host_button: Button = $UI/NetworkPanel/VBox/Buttons/HostButton
+@onready var _join_button: Button = $UI/NetworkPanel/VBox/Buttons/JoinButton
+@onready var _network_status: Label = $UI/NetworkPanel/VBox/NetworkStatus
 
 
 func _ready() -> void:
@@ -29,6 +38,13 @@ func _ready() -> void:
 	_attack_button.pressed.connect(_choose_attack_upgrade)
 	_speed_button.pressed.connect(_choose_speed_upgrade)
 	_health_button.pressed.connect(_choose_health_upgrade)
+	_host_button.pressed.connect(_host_game)
+	_join_button.pressed.connect(_join_game)
+	multiplayer.peer_connected.connect(_on_peer_connected)
+	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	multiplayer.connected_to_server.connect(_on_connected_to_server)
+	multiplayer.connection_failed.connect(_on_connection_failed)
+	multiplayer.server_disconnected.connect(_on_server_disconnected)
 
 	_on_player_health_changed(_player.get_health(), _player.max_health)
 	_on_player_mana_changed(_player.get_mana(), _player.max_mana)
@@ -37,6 +53,106 @@ func _ready() -> void:
 
 	_current_enemy = $TrainingDummy as TrainingDummy
 	_connect_enemy(_current_enemy)
+
+
+func _host_game() -> void:
+	var peer := ENetMultiplayerPeer.new()
+	var error := peer.create_server(NETWORK_PORT, MAX_CLIENTS)
+	if error != OK:
+		_network_status.text = "创建主机失败：%s" % error_string(error)
+		return
+	multiplayer.multiplayer_peer = peer
+	_prepare_existing_player_for_network()
+	_network_players[1] = true
+	_network_status.text = "主机已开启，端口 %d（最多 8 人）" % NETWORK_PORT
+	_host_button.disabled = true
+	_join_button.disabled = true
+
+
+func _join_game() -> void:
+	var address := _address_input.text.strip_edges()
+	if address.is_empty():
+		address = "127.0.0.1"
+	var peer := ENetMultiplayerPeer.new()
+	var error := peer.create_client(address, NETWORK_PORT)
+	if error != OK:
+		_network_status.text = "连接失败：%s" % error_string(error)
+		return
+	multiplayer.multiplayer_peer = peer
+	_prepare_existing_player_for_network()
+	_network_status.text = "正在连接 %s:%d……" % [address, NETWORK_PORT]
+	_host_button.disabled = true
+	_join_button.disabled = true
+
+
+func _prepare_existing_player_for_network() -> void:
+	_player.name = "Player_1"
+	_player.configure_network_authority(1)
+	_network_players[1] = true
+
+
+func _on_connected_to_server() -> void:
+	_network_status.text = "连接成功，玩家编号 %d" % multiplayer.get_unique_id()
+
+
+func _on_connection_failed() -> void:
+	_network_status.text = "连接主机失败"
+	multiplayer.multiplayer_peer = null
+	_host_button.disabled = false
+	_join_button.disabled = false
+
+
+func _on_server_disconnected() -> void:
+	_network_status.text = "与主机断开连接"
+	multiplayer.multiplayer_peer = null
+
+
+func _on_peer_connected(peer_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	for existing_id in _network_players:
+		_spawn_network_player.rpc_id(peer_id, existing_id)
+	_spawn_network_player.rpc(peer_id)
+
+
+func _on_peer_disconnected(peer_id: int) -> void:
+	if multiplayer.is_server():
+		_remove_network_player.rpc(peer_id)
+
+
+@rpc("authority", "call_local", "reliable")
+func _spawn_network_player(peer_id: int) -> void:
+	if _network_players.has(peer_id):
+		return
+	var player := PLAYER_SCENE.instantiate() as Player
+	player.name = "Player_%d" % peer_id
+	player.position = Vector2(170 + (_network_players.size() % 4) * 54, 610)
+	add_child(player)
+	player.configure_network_authority(peer_id)
+	_network_players[peer_id] = true
+	if peer_id == multiplayer.get_unique_id():
+		_bind_local_player(player)
+	_network_status.text = "当前玩家：%d / 8" % _network_players.size()
+
+
+@rpc("authority", "call_local", "reliable")
+func _remove_network_player(peer_id: int) -> void:
+	var player := get_node_or_null("Player_%d" % peer_id)
+	if is_instance_valid(player):
+		player.queue_free()
+	_network_players.erase(peer_id)
+	_network_status.text = "当前玩家：%d / 8" % _network_players.size()
+
+
+func _bind_local_player(player: Player) -> void:
+	_player = player
+	_player.health_changed.connect(_on_player_health_changed)
+	_player.mana_changed.connect(_on_player_mana_changed)
+	_player.body_parts_changed.connect(_on_player_body_parts_changed)
+	_player.stats_changed.connect(_on_player_stats_changed)
+	_player.died.connect(_on_player_died)
+	_on_player_health_changed(_player.get_health(), _player.max_health)
+	_on_player_mana_changed(_player.get_mana(), _player.max_mana)
 
 
 func _connect_enemy(enemy: TrainingDummy) -> void:

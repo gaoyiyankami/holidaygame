@@ -80,6 +80,9 @@ var _movement_multiplier: float = 1.0
 var _jump_multiplier: float = 1.0
 var _dash_multiplier: float = 1.0
 var _animation_time: float = 0.0
+var _network_target_position: Vector2
+var _network_target_velocity: Vector2
+var _network_facing: float = 1.0
 var _hit_targets: Dictionary = {}
 var _parts: Dictionary = {}
 var _sword_tween: Tween
@@ -92,6 +95,7 @@ const MAGIC_BOLT_SCENE := preload("res://scenes/combat/magic_bolt.tscn")
 @onready var _attack_area: Area2D = $Visual/SwordPivot/AttackArea
 @onready var _slash_visual: Polygon2D = $Visual/SwordPivot/AttackArea/SlashVisual
 @onready var _dash_visual: Polygon2D = $Visual/DashVisual
+@onready var _camera: Camera2D = $Camera2D
 
 
 func _ready() -> void:
@@ -101,10 +105,18 @@ func _ready() -> void:
 	_refresh_body_health()
 	_mana = max_mana
 	mana_changed.emit(_mana, max_mana)
+	_network_target_position = global_position
 
 
 func _physics_process(delta: float) -> void:
 	_animation_time += delta
+	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
+		global_position = global_position.lerp(_network_target_position, minf(delta * 14.0, 1.0))
+		velocity = _network_target_velocity
+		_visual.scale.x = _network_facing
+		_animate_body_parts()
+		return
+
 	_regenerate_mana(delta)
 	_update_timers(delta)
 	if _dash_timer > 0.0:
@@ -122,6 +134,8 @@ func _physics_process(delta: float) -> void:
 			velocity.x = move_toward(velocity.x, 0.0, friction * delta)
 	move_and_slide()
 	_animate_body_parts()
+	if multiplayer.has_multiplayer_peer():
+		_receive_network_state.rpc(global_position, velocity, _visual.scale.x)
 
 
 func _update_timers(delta: float) -> void:
@@ -220,8 +234,8 @@ func _start_attack(step: int, kind: AttackKind = AttackKind.NORMAL) -> void:
 			_attack_area.position = Vector2(72, 0)
 			_slash_visual.scale = Vector2(1.45, 0.85)
 		AttackKind.LOW:
-			_attack_area.position = Vector2(58, 24)
-			_slash_visual.scale = Vector2(1.25, 0.65)
+			_attack_area.position = Vector2(58, 34)
+			_slash_visual.scale = Vector2(1.3, 0.72)
 		_:
 			_attack_area.position = Vector2(48.0 + step * 5.0, 0)
 	_play_sword_windup(step)
@@ -267,6 +281,8 @@ func _damage_overlapping_enemies() -> void:
 		if _hit_targets.has(target_id):
 			continue
 		var distance := _attack_area.global_position.distance_squared_to(part.global_position)
+		if _attack_kind == AttackKind.LOW:
+			distance = -part.global_position.y
 		if not closest_by_actor.has(target_id) or distance < closest_by_actor[target_id]["distance"]:
 			closest_by_actor[target_id] = {"part": part, "distance": distance}
 
@@ -282,6 +298,24 @@ func _damage_overlapping_enemies() -> void:
 		var damage := maxi(1, roundi(base_damage * _attack_damage_multiplier))
 		if part.receive_damage(damage, global_position):
 			_hit_targets[target_id] = true
+
+
+func configure_network_authority(peer_id: int) -> void:
+	set_multiplayer_authority(peer_id)
+	_camera.enabled = peer_id == multiplayer.get_unique_id()
+	if not is_multiplayer_authority():
+		_controls_enabled = false
+
+
+@rpc("authority", "call_remote", "unreliable_ordered")
+func _receive_network_state(
+	network_position: Vector2,
+	network_velocity: Vector2,
+	facing: float
+) -> void:
+	_network_target_position = network_position
+	_network_target_velocity = network_velocity
+	_network_facing = facing
 
 
 func _get_windup_duration(step: int) -> float:
