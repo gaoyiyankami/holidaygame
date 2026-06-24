@@ -13,9 +13,21 @@ extends CharacterBody2D
 @export var jump_buffer_time: float = 0.12
 @export var jump_cut_multiplier: float = 0.45
 
+@export_category("Combat")
+@export var attack_damage: int = 1
+@export var attack_duration: float = 0.16
+@export var attack_cooldown: float = 0.32
+
 var _gravity: float = 1600.0
 var _coyote_timer: float = 0.0
 var _jump_buffer_timer: float = 0.0
+var _attack_timer: float = 0.0
+var _attack_cooldown_timer: float = 0.0
+var _hit_targets: Dictionary = {}
+
+@onready var _visual: Node2D = $Visual
+@onready var _attack_area: Area2D = $Visual/AttackArea
+@onready var _slash_visual: Polygon2D = $Visual/AttackArea/SlashVisual
 
 
 func _ready() -> void:
@@ -27,6 +39,7 @@ func _physics_process(delta: float) -> void:
 	_apply_gravity(delta)
 	_handle_horizontal_movement(delta)
 	_handle_jump()
+	_handle_attack(delta)
 	move_and_slide()
 
 
@@ -54,7 +67,7 @@ func _handle_horizontal_movement(delta: float) -> void:
 	if not is_zero_approx(direction):
 		var current_acceleration := acceleration if is_on_floor() else air_acceleration
 		velocity.x = move_toward(velocity.x, target_speed, current_acceleration * delta)
-		$Visual.scale.x = signf(direction)
+		_visual.scale.x = signf(direction)
 	else:
 		velocity.x = move_toward(velocity.x, 0.0, friction * delta)
 
@@ -68,3 +81,35 @@ func _handle_jump() -> void:
 	if Input.is_action_just_released("jump") and velocity.y < 0.0:
 		velocity.y *= jump_cut_multiplier
 
+
+func _handle_attack(delta: float) -> void:
+	_attack_cooldown_timer = maxf(_attack_cooldown_timer - delta, 0.0)
+
+	if Input.is_action_just_pressed("attack") and _attack_cooldown_timer <= 0.0:
+		_start_attack()
+
+	if _attack_timer <= 0.0:
+		return
+
+	_attack_timer = maxf(_attack_timer - delta, 0.0)
+	_damage_overlapping_enemies()
+
+	if _attack_timer <= 0.0:
+		_slash_visual.visible = false
+
+
+func _start_attack() -> void:
+	_attack_timer = attack_duration
+	_attack_cooldown_timer = attack_cooldown
+	_hit_targets.clear()
+	_slash_visual.visible = true
+
+
+func _damage_overlapping_enemies() -> void:
+	for body in _attack_area.get_overlapping_bodies():
+		var target_id := body.get_instance_id()
+		if _hit_targets.has(target_id):
+			continue
+		if body.has_method("take_damage"):
+			_hit_targets[target_id] = true
+			body.take_damage(attack_damage, global_position)
