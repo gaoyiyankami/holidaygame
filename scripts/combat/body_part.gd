@@ -10,6 +10,8 @@ var max_health: int
 var health: int
 var vital: bool
 var actor: Node
+var rest_position: Vector2
+var rest_rotation: float = 0.0
 
 var _visual: Polygon2D
 var _collision: CollisionShape2D
@@ -34,6 +36,7 @@ func configure(
 	health = hp
 	vital = is_vital
 	position = part_position
+	rest_position = part_position
 	collision_layer = hurtbox_layer
 	collision_mask = 0
 	monitorable = true
@@ -71,7 +74,7 @@ func receive_damage(amount: int, source_position: Vector2) -> bool:
 
 	if health <= 0:
 		_collision.set_deferred("disabled", true)
-		_visual.modulate = Color(0.22, 0.22, 0.22, 0.48)
+		visible = false
 		destroyed.emit(self)
 	return true
 
@@ -90,6 +93,13 @@ func set_tint(color: Color) -> void:
 func reset_tint() -> void:
 	if health > 0:
 		_visual.modulate = Color.WHITE
+
+
+func animate_transform(offset: Vector2, angle: float) -> void:
+	if health <= 0:
+		return
+	position = rest_position + offset
+	rotation = rest_rotation + angle
 
 
 func _flash() -> void:

@@ -20,18 +20,32 @@ func _ready() -> void:
 	enemy_arm.receive_damage(1, player.global_position)
 	var independent_health := enemy_arm.health == arm_before - 1 \
 		and enemy_torso.health == torso_before
+	enemy_arm.receive_damage(999, player.global_position)
+	var destroyed_part_hidden := not enemy_arm.visible
+	var arm_debuff_applied := enemy.get_attack_multiplier() < 1.0
 
 	enemy.position = player.position + Vector2(70, 0)
 	var enemy_total_before := _total_health(enemy_parts)
 	var sword_pivot := player.get_node("Visual/SwordPivot") as Node2D
 	var sword_rest_angle := sword_pivot.rotation
-	Input.action_press("attack")
-	await get_tree().physics_frame
-	Input.action_release("attack")
-	await get_tree().create_timer(0.04).timeout
-	var sword_animated := absf(sword_pivot.rotation - sword_rest_angle) > 0.1
+	player.call("_start_attack", 1)
+	await get_tree().create_timer(0.06).timeout
+	var no_damage_during_windup := _total_health(enemy_parts) == enemy_total_before
 	await get_tree().create_timer(0.12).timeout
+	var sword_animated := absf(sword_pivot.rotation - sword_rest_angle) > 0.03
 	var sword_hit_part := _total_health(enemy_parts) < enemy_total_before
+	await get_tree().create_timer(0.1).timeout
+	var attack_has_recovery := player.is_attack_recovering()
+
+	player.velocity.x = 180.0
+	player.set("_animation_time", 0.7)
+	player.call("_animate_body_parts")
+	var animated_part_count := 0
+	for node in player_parts:
+		var part := node as BodyPart
+		if part.health > 0 and (absf(part.rotation) > 0.03 or part.position.distance_to(part.rest_position) > 0.5):
+			animated_part_count += 1
+	var parts_animated := animated_part_count >= 4
 
 	var player_torso := _find_part(player_parts, "torso")
 	var player_torso_before := player_torso.health
@@ -40,16 +54,29 @@ func _ready() -> void:
 	var dash_iframe_worked := player.is_dash_invulnerable() \
 		and not damage_accepted and player_torso.health == player_torso_before
 
-	print("Body parts test: six=%s independent=%s sword_hit=%s sword_animation=%s dash_iframe=%s" % [
+	var left_wall_shape := $Main/LeftWall/CollisionShape2D.shape as RectangleShape2D
+	var right_wall_shape := $Main/RightWall/CollisionShape2D.shape as RectangleShape2D
+	var room_walls_cover_height := left_wall_shape.size.y >= 720.0 \
+		and right_wall_shape.size.y >= 720.0
+
+	print("Body parts test: six=%s independent=%s hidden=%s debuff=%s parts_animated=%s windup_safe=%s sword_hit=%s sword_animation=%s recovery=%s dash_iframe=%s walls=%s" % [
 		six_parts_created,
 		independent_health,
+		destroyed_part_hidden,
+		arm_debuff_applied,
+		parts_animated,
+		no_damage_during_windup,
 		sword_hit_part,
 		sword_animated,
+		attack_has_recovery,
 		dash_iframe_worked,
+		room_walls_cover_height,
 	])
 
-	var passed := six_parts_created and independent_health and sword_hit_part \
-		and sword_animated and dash_iframe_worked
+	var passed := six_parts_created and independent_health and destroyed_part_hidden \
+		and arm_debuff_applied and parts_animated and no_damage_during_windup \
+		and sword_hit_part and sword_animated and attack_has_recovery \
+		and dash_iframe_worked and room_walls_cover_height
 	get_tree().quit(0 if passed else 1)
 
 

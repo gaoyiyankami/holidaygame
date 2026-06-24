@@ -33,6 +33,10 @@ var _state: State = State.IDLE
 var _state_timer: float = 0.0
 var _attack_has_hit: bool = false
 var _parts: Dictionary = {}
+var _movement_multiplier: float = 1.0
+var _attack_multiplier: float = 1.0
+var _attack_speed_multiplier: float = 1.0
+var _animation_time: float = 0.0
 
 @onready var _visual: Node2D = $Visual
 @onready var _parts_root: Node2D = $Visual/Parts
@@ -49,11 +53,13 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_animation_time += delta
 	if not is_on_floor():
 		velocity.y += _gravity * delta
 
 	_update_state(delta)
 	move_and_slide()
+	_animate_body_parts()
 
 
 func _update_state(delta: float) -> void:
@@ -79,7 +85,7 @@ func _update_state(delta: float) -> void:
 			elif global_position.distance_to(_target.global_position) > chase_range:
 				_change_state(State.IDLE)
 			else:
-				velocity.x = direction * move_speed
+				velocity.x = direction * move_speed * _movement_multiplier
 		State.WINDUP:
 			_stop_horizontal(delta)
 			_tick_timed_state(delta, State.ATTACK)
@@ -102,15 +108,15 @@ func _change_state(next_state: State) -> void:
 
 	match _state:
 		State.WINDUP:
-			_state_timer = attack_windup
+			_state_timer = attack_windup / _attack_speed_multiplier
 			_set_parts_tint(Color(1.0, 0.72, 0.25, 1.0))
 		State.ATTACK:
-			_state_timer = attack_duration
+			_state_timer = attack_duration / _attack_speed_multiplier
 			_attack_has_hit = false
 			_attack_visual.visible = true
 			_try_damage_player()
 		State.RECOVERY:
-			_state_timer = attack_cooldown
+			_state_timer = attack_cooldown / _attack_speed_multiplier
 			_set_parts_tint(Color(0.72, 0.72, 0.72, 1.0))
 		State.HURT:
 			_state_timer = hurt_duration
@@ -153,7 +159,8 @@ func _try_damage_player() -> void:
 				closest_part = part
 				closest_distance = distance
 	if is_instance_valid(closest_part):
-		if closest_part.receive_damage(attack_damage, global_position):
+		var damage := maxi(1, roundi(attack_damage * _attack_multiplier))
+		if closest_part.receive_damage(damage, global_position):
 			_attack_has_hit = true
 
 
@@ -167,6 +174,14 @@ func take_damage(amount: int, source_position: Vector2) -> void:
 
 func can_receive_part_damage() -> bool:
 	return _state != State.DEAD
+
+
+func get_movement_multiplier() -> float:
+	return _movement_multiplier
+
+
+func get_attack_multiplier() -> float:
+	return _attack_multiplier
 
 
 func on_body_part_damaged(part: BodyPart, _amount: int, source_position: Vector2) -> void:
@@ -239,6 +254,7 @@ func _add_body_part(
 	_parts_root.add_child(part)
 	part.configure(self, id, label, hp, vital, part_size, part_position, color, layer)
 	part.health_changed.connect(_on_part_health_changed)
+	part.destroyed.connect(_on_part_destroyed)
 	_parts[id] = part
 
 
@@ -246,6 +262,43 @@ func _on_part_health_changed(_part: BodyPart) -> void:
 	_update_health_label()
 
 
+func _on_part_destroyed(part: BodyPart) -> void:
+	match part.part_id:
+		"left_arm", "right_arm":
+			_attack_multiplier *= 0.68
+			_attack_speed_multiplier *= 0.78
+		"left_leg", "right_leg":
+			_movement_multiplier *= 0.62
+	_update_health_label()
+
+
 func _set_parts_tint(color: Color) -> void:
 	for part in _parts.values():
 		(part as BodyPart).set_tint(color)
+
+
+func _animate_body_parts() -> void:
+	var moving := absf(velocity.x) > 10.0 and is_on_floor()
+	var phase := _animation_time * (7.0 + absf(velocity.x) * 0.015)
+	var swing := sin(phase)
+	var bob := sin(_animation_time * 2.0) * 1.0
+
+	_animate_part("torso", Vector2(0, bob), swing * 0.025 if moving else 0.0)
+	_animate_part("head", Vector2(0, bob * 1.2), -swing * 0.03 if moving else sin(_animation_time * 1.5) * 0.03)
+	_animate_part("left_leg", Vector2.ZERO, -swing * 0.45 if moving else 0.0)
+	_animate_part("right_leg", Vector2.ZERO, swing * 0.45 if moving else 0.0)
+	_animate_part("left_arm", Vector2(0, bob), swing * 0.5 if moving else sin(_animation_time * 1.8) * 0.08)
+	_animate_part("right_arm", Vector2(0, bob), -swing * 0.5 if moving else -sin(_animation_time * 1.8) * 0.08)
+
+	if _state == State.WINDUP:
+		_animate_part("right_arm", Vector2(-2, -4), deg_to_rad(-55.0))
+	elif _state == State.ATTACK:
+		_animate_part("right_arm", Vector2(5, 0), deg_to_rad(70.0))
+	elif _state == State.RECOVERY:
+		_animate_part("right_arm", Vector2(1, 0), deg_to_rad(20.0))
+
+
+func _animate_part(id: StringName, offset: Vector2, angle: float) -> void:
+	var part: BodyPart = _parts.get(id)
+	if is_instance_valid(part):
+		part.animate_transform(offset, angle)
