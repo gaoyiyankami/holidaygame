@@ -30,6 +30,7 @@ var _network_players: Dictionary = {}
 @onready var _start_menu: PanelContainer = $UI/StartMenu
 @onready var _single_button: Button = $UI/StartMenu/Margin/VBox/SingleButton
 @onready var _multi_button: Button = $UI/StartMenu/Margin/VBox/MultiButton
+@onready var _back_button: Button = $UI/NetworkPanel/VBox/BackButton
 
 
 func _ready() -> void:
@@ -43,6 +44,7 @@ func _ready() -> void:
 	_health_button.pressed.connect(_choose_health_upgrade)
 	_single_button.pressed.connect(_start_single_player)
 	_multi_button.pressed.connect(_show_multiplayer_menu)
+	_back_button.pressed.connect(_show_start_menu)
 	_host_button.pressed.connect(_host_game)
 	_join_button.pressed.connect(_join_game)
 	multiplayer.peer_connected.connect(_on_peer_connected)
@@ -60,17 +62,46 @@ func _ready() -> void:
 	_connect_enemy(_current_enemy)
 	_player.set_controls_enabled(false)
 	_network_panel.visible = false
+	_set_game_active(false)
 
 
 func _start_single_player() -> void:
 	_start_menu.visible = false
 	_network_panel.visible = false
-	_player.set_controls_enabled(true)
+	_set_game_active(true)
 
 
 func _show_multiplayer_menu() -> void:
 	_start_menu.visible = false
 	_network_panel.visible = true
+	_set_game_active(false)
+
+
+func _show_start_menu() -> void:
+	_network_panel.visible = false
+	_start_menu.visible = true
+	_set_game_active(false)
+
+
+func _set_game_active(active: bool) -> void:
+	for child in get_children():
+		if child is CanvasItem and child != $UI:
+			(child as CanvasItem).visible = active
+	for node_name in [
+		"HelpPanel",
+		"HealthPanel",
+		"ManaPanel",
+		"StatsPanel",
+		"BodyPartsPanel",
+		"WaveLabel",
+		"StatusLabel",
+		"UpgradePanel",
+	]:
+		var hud_node := $UI.get_node_or_null(node_name) as CanvasItem
+		if is_instance_valid(hud_node):
+			hud_node.visible = active and node_name not in ["StatusLabel", "UpgradePanel"]
+	_player.set_controls_enabled(active)
+	get_tree().paused = not active
 
 
 func _selected_port() -> int:
@@ -89,7 +120,7 @@ func _host_game() -> void:
 	_network_players[1] = true
 	_network_status.text = "主机已开启，端口 %d（最多 8 人）" % port
 	_network_panel.visible = false
-	_player.set_controls_enabled(true)
+	_set_game_active(true)
 	_host_button.disabled = true
 	_join_button.disabled = true
 
@@ -120,6 +151,7 @@ func _prepare_existing_player_for_network() -> void:
 func _on_connected_to_server() -> void:
 	_network_status.text = "连接成功，玩家编号 %d" % multiplayer.get_unique_id()
 	_network_panel.visible = false
+	_set_game_active(true)
 
 
 func _on_connection_failed() -> void:

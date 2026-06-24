@@ -69,6 +69,7 @@ corner_radius_bottom_right = 16
 corner_radius_bottom_left = 16
 
 [node name="Main" type="Node2D"]
+process_mode = 3
 script = ExtResource("3_main")
 
 [node name="BackgroundLayer" type="CanvasLayer" parent="."]
@@ -160,6 +161,8 @@ position = Vector2(560, 602)
 position = Vector2(1040, 602)
 
 [node name="UI" type="CanvasLayer" parent="."]
+process_mode = 3
+
 
 [node name="HelpPanel" type="PanelContainer" parent="UI"]
 offset_left = 24.0
@@ -234,21 +237,22 @@ theme_override_font_sizes/font_size = 25
 
 [node name="NetworkPanel" type="PanelContainer" parent="UI"]
 visible = false
-offset_left = 1018.0
-offset_top = 82.0
-offset_right = 1260.0
-offset_bottom = 278.0
-theme_override_styles/panel = SubResource("StyleBox_panel")
+offset_left = 350.0
+offset_top = 100.0
+offset_right = 930.0
+offset_bottom = 620.0
+theme_override_styles/panel = SubResource("StyleBox_upgrade")
 
 [node name="VBox" type="VBoxContainer" parent="UI/NetworkPanel"]
-theme_override_constants/separation = 7
+theme_override_constants/separation = 20
 
 [node name="Title" type="Label" parent="UI/NetworkPanel/VBox"]
-text = "多人联机（最多 8 人）"
+text = "多人游戏"
 horizontal_alignment = 1
-theme_override_font_sizes/font_size = 17
+theme_override_font_sizes/font_size = 32
 
 [node name="AddressInput" type="LineEdit" parent="UI/NetworkPanel/VBox"]
+custom_minimum_size = Vector2(0, 55)
 placeholder_text = "主机 IP，默认 127.0.0.1"
 text = "127.0.0.1"
 
@@ -258,6 +262,7 @@ text = "127.0.0.1"
 text = "端口"
 
 [node name="PortInput" type="SpinBox" parent="UI/NetworkPanel/VBox/PortRow"]
+custom_minimum_size = Vector2(0, 50)
 min_value = 1024.0
 max_value = 65535.0
 value = 7000.0
@@ -267,17 +272,24 @@ size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
 [node name="HostButton" type="Button" parent="UI/NetworkPanel/VBox/Buttons"]
+custom_minimum_size = Vector2(0, 65)
 size_flags_horizontal = 3
 text = "创建主机"
 
 [node name="JoinButton" type="Button" parent="UI/NetworkPanel/VBox/Buttons"]
+custom_minimum_size = Vector2(0, 65)
 size_flags_horizontal = 3
 text = "加入"
 
 [node name="NetworkStatus" type="Label" parent="UI/NetworkPanel/VBox"]
 text = "离线模式"
 horizontal_alignment = 1
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 18
+
+[node name="BackButton" type="Button" parent="UI/NetworkPanel/VBox"]
+custom_minimum_size = Vector2(0, 55)
+text = "返回主菜单"
+theme_override_font_sizes/font_size = 20
 
 [node name="StartMenu" type="PanelContainer" parent="UI"]
 offset_left = 390.0

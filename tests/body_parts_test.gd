@@ -2,6 +2,7 @@ extends Node
 
 
 func _ready() -> void:
+	$Main.call("_start_single_player")
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 
