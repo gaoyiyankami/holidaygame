@@ -146,6 +146,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_animation_time += delta
 	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
+		_update_network_proxy_timers(delta)
 		var predicted_position := _network_target_position + _network_target_velocity * 0.045
 		if global_position.distance_to(_network_target_position) > 180.0:
 			global_position = _network_target_position
@@ -191,6 +192,20 @@ func _physics_process(delta: float) -> void:
 			_slash_visual.visible,
 			_shield.rotation
 		)
+
+
+func _update_network_proxy_timers(delta: float) -> void:
+	# The server owns damage resolution even when the player node is owned by a
+	# client. These timers must keep advancing on remote proxies; otherwise one
+	# hit leaves a client-owned player permanently invulnerable on the server.
+	_invincibility_timer = maxf(_invincibility_timer - delta, 0.0)
+	_hurt_lock_timer = maxf(_hurt_lock_timer - delta, 0.0)
+	_movement_stun_timer = maxf(_movement_stun_timer - delta, 0.0)
+	_attack_stun_timer = maxf(_attack_stun_timer - delta, 0.0)
+	if _is_blocking:
+		_block_timer += delta
+	else:
+		_block_timer = 0.0
 
 
 func _update_timers(delta: float) -> void:
@@ -584,12 +599,17 @@ func _receive_network_state(
 	slash_visible: bool,
 	shield_rotation: float
 ) -> void:
+	var was_blocking := _is_blocking
 	_network_target_position = network_position
 	_network_target_velocity = network_velocity
 	_network_facing = facing
 	_attack_phase = attack_phase as AttackPhase
 	_attack_kind = attack_kind as AttackKind
 	_is_blocking = blocking
+	if blocking and not was_blocking:
+		_block_timer = 0.0
+	elif not blocking:
+		_block_timer = 0.0
 	_animation_time = animation_time
 	_sword_pivot.rotation = sword_rotation
 	_slash_visual.visible = slash_visible
