@@ -137,8 +137,16 @@ func _show_start_menu() -> void:
 
 func _set_game_active(active: bool) -> void:
 	for child in get_children():
-		if child is CanvasItem and child != $UI:
+		if child is CanvasItem and child != $UI and child not in [$HallMap, $PvPMap]:
 			(child as CanvasItem).visible = active
+	if not active:
+		$HallMap.visible = false
+		$PvPMap.visible = false
+	elif _pvp_mode:
+		_apply_multiplayer_map(_multiplayer_map)
+	else:
+		_set_arena_enabled(false)
+		_set_hall_enabled(true)
 	for node_name in [
 		"HelpPanel",
 		"HealthPanel",

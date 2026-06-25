@@ -8,6 +8,11 @@ func _ready() -> void:
 
 	var player := $Main/Player as Player
 	var enemy := $Main/TrainingDummy as TrainingDummy
+	var single_map_clean := $Main/HallMap.visible and not $Main/PvPMap.visible
+	for node in $Main/HallMap.find_children("*", "CollisionShape2D", true, false):
+		single_map_clean = single_map_clean and not (node as CollisionShape2D).disabled
+	for node in $Main/PvPMap.find_children("*", "CollisionShape2D", true, false):
+		single_map_clean = single_map_clean and (node as CollisionShape2D).disabled
 	enemy.set_physics_process(false)
 
 	var player_parts := player.get_node("Visual/Parts").get_children()
@@ -163,7 +168,8 @@ func _ready() -> void:
 	player_arm.receive_damage(999, block_enemy.global_position)
 	var arm_break_disables_block := not shield.visible and not player.can_block()
 
-	print("Body parts test: base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s magic_guard=%s half=%s cooldown=%s arm_break=%s" % [
+	print("Body parts test: map=%s base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s magic_guard=%s half=%s cooldown=%s arm_break=%s" % [
+		single_map_clean,
 		six_parts_created,
 		dots_centered,
 		parts_animated,
@@ -182,7 +188,7 @@ func _ready() -> void:
 		arm_break_disables_block,
 	])
 
-	var passed := six_parts_created and dots_centered \
+	var passed := single_map_clean and six_parts_created and dots_centered \
 		and independent_health and destroyed_part_hidden \
 		and arm_debuff_applied and parts_animated and no_damage_during_windup \
 		and sword_hit_part and sword_animated and attack_has_recovery \
