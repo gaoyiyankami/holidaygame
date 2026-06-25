@@ -71,13 +71,13 @@ func configure(
 	_update_status_dot()
 
 
-func receive_damage(amount: int, source_position: Vector2) -> bool:
+func receive_damage(amount: int, source_position: Vector2, damage_kind: String = "melee") -> bool:
 	if health <= 0:
 		return false
 	if actor.has_method("can_receive_part_damage") and not actor.can_receive_part_damage():
 		return false
 	if actor.has_method("modify_incoming_damage"):
-		amount = actor.modify_incoming_damage(amount, source_position)
+		amount = actor.modify_incoming_damage(amount, source_position, damage_kind)
 		if amount <= 0:
 			return true
 

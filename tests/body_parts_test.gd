@@ -139,7 +139,16 @@ func _ready() -> void:
 	player.call("_start_block")
 	var perfect_connected := block_torso.receive_damage(2, block_enemy.global_position)
 	var perfect_blocked := perfect_connected and block_torso.health == perfect_before \
-		and block_enemy.get_movement_stun_time() >= 0.9
+		and block_enemy.get_movement_stun_time() >= 0.9 \
+		and block_enemy.get_attack_stun_time() >= 0.9
+	block_enemy.set("_movement_stun_timer", 0.0)
+	block_enemy.set("_attack_stun_timer", 0.0)
+	var magic_before := block_torso.health
+	player.set("_invincibility_timer", 0.0)
+	var magic_connected := block_torso.receive_damage(5, block_enemy.global_position, "spell")
+	var blocking_immune_to_magic := magic_connected and block_torso.health == magic_before \
+		and block_enemy.get_movement_stun_time() == 0.0 \
+		and block_enemy.get_attack_stun_time() == 0.0
 	player.set("_block_timer", 0.3)
 	player.set("_invincibility_timer", 0.0)
 	var reduced_before := block_torso.health
@@ -154,7 +163,7 @@ func _ready() -> void:
 	player_arm.receive_damage(999, block_enemy.global_position)
 	var arm_break_disables_block := not shield.visible and not player.can_block()
 
-	print("Body parts test: base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s half=%s cooldown=%s arm_break=%s" % [
+	print("Body parts test: base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s magic_guard=%s half=%s cooldown=%s arm_break=%s" % [
 		six_parts_created,
 		dots_centered,
 		parts_animated,
@@ -167,6 +176,7 @@ func _ready() -> void:
 		spell_worked,
 		mana_regenerated,
 		perfect_blocked,
+		blocking_immune_to_magic,
 		half_damage,
 		block_cooldown_started,
 		arm_break_disables_block,
@@ -179,7 +189,8 @@ func _ready() -> void:
 		and dash_iframe_worked and room_walls_cover_height \
 		and air_attack_worked and dash_attack_worked \
 		and low_attack_worked and spell_worked and mana_regenerated \
-		and perfect_blocked and half_damage and block_cooldown_started \
+		and perfect_blocked and blocking_immune_to_magic \
+		and half_damage and block_cooldown_started \
 		and arm_break_disables_block
 	get_tree().quit(0 if passed else 1)
 

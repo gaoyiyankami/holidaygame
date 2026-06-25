@@ -20,7 +20,7 @@ enum State {
 @export var chase_range: float = 520.0
 @export var attack_range: float = 76.0
 @export_category("Attack")
-@export var attack_damage: int = 1
+@export var attack_damage: int = 3
 @export var attack_windup: float = 0.28
 @export var attack_duration: float = 0.16
 @export var attack_cooldown: float = 1.0
@@ -38,6 +38,7 @@ var _attack_multiplier: float = 1.0
 var _attack_speed_multiplier: float = 1.0
 var _animation_time: float = 0.0
 var _movement_stun_timer: float = 0.0
+var _attack_stun_timer: float = 0.0
 
 @onready var _visual: Node2D = $Visual
 @onready var _parts_root: Node2D = $Visual/Parts
@@ -56,10 +57,11 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_animation_time += delta
 	_movement_stun_timer = maxf(_movement_stun_timer - delta, 0.0)
+	_attack_stun_timer = maxf(_attack_stun_timer - delta, 0.0)
 	if not is_on_floor():
 		velocity.y += _gravity * delta
 
-	if _movement_stun_timer <= 0.0:
+	if _movement_stun_timer <= 0.0 and _attack_stun_timer <= 0.0:
 		_update_state(delta)
 	else:
 		velocity.x = 0.0
@@ -164,6 +166,15 @@ func _try_damage_player() -> void:
 				closest_part = part
 				closest_distance = distance
 	if is_instance_valid(closest_part):
+		if is_instance_valid(_target) and _target.is_network_attack_active():
+			apply_combat_stun(0.45)
+			velocity.x = signf(global_position.x - _target.global_position.x) * 260.0
+			_target.apply_clash_recoil(signf(_target.global_position.x - global_position.x))
+			var main := get_tree().current_scene
+			if is_instance_valid(main) and main.has_method("show_local_combat_message"):
+				main.show_local_combat_message((global_position + _target.global_position) * 0.5, "拼刀！")
+			_attack_has_hit = true
+			return
 		var damage := maxi(1, roundi(attack_damage * _attack_multiplier))
 		if closest_part.receive_damage(damage, global_position):
 			_attack_has_hit = true
@@ -192,6 +203,22 @@ func get_attack_multiplier() -> float:
 func apply_movement_stun(duration: float) -> void:
 	_movement_stun_timer = maxf(_movement_stun_timer, duration)
 	velocity.x = 0.0
+
+
+func apply_combat_stun(duration: float) -> void:
+	_movement_stun_timer = maxf(_movement_stun_timer, duration)
+	_attack_stun_timer = maxf(_attack_stun_timer, duration)
+	velocity.x = 0.0
+	_attack_has_hit = true
+	_change_state(State.RECOVERY)
+
+
+func get_attack_stun_time() -> float:
+	return _attack_stun_timer
+
+
+func is_melee_attack_active() -> bool:
+	return _state == State.ATTACK and _attack_stun_timer <= 0.0
 
 
 func get_movement_stun_time() -> float:

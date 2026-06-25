@@ -23,7 +23,7 @@ signal died
 signal pvp_defeated(victim_peer_id: int, killer_peer_id: int)
 
 @export_category("Movement")
-@export var move_speed: float = 320.0
+@export var move_speed: float = 300.0
 @export var acceleration: float = 1800.0
 @export var air_acceleration: float = 1100.0
 @export var friction: float = 2200.0
@@ -35,14 +35,14 @@ signal pvp_defeated(victim_peer_id: int, killer_peer_id: int)
 @export var jump_cut_multiplier: float = 0.45
 
 @export_category("Combat")
-@export var attack_damage: int = 3
+@export var attack_damage: int = 4
 @export var combo_reset_time: float = 0.5
-@export var spell_damage: int = 2
+@export var spell_damage: int = 5
 
 @export_category("Magic")
 @export var max_mana: int = 100
-@export var spell_cost: int = 20
-@export var mana_regen_per_second: float = 8.0
+@export var spell_cost: int = 25
+@export var mana_regen_per_second: float = 7.0
 
 @export_category("Dash")
 @export var dash_speed: float = 760.0
@@ -96,6 +96,7 @@ var _block_cooldown_timer: float = 0.0
 var _block_facing: float = 1.0
 var _can_block: bool = true
 var _movement_stun_timer: float = 0.0
+var _attack_stun_timer: float = 0.0
 var _pvp_enabled: bool = false
 var _last_attacker_peer_id: int = 0
 var _network_target_position: Vector2
@@ -179,6 +180,7 @@ func _update_timers(delta: float) -> void:
 	_invincibility_timer = maxf(_invincibility_timer - delta, 0.0)
 	_hurt_lock_timer = maxf(_hurt_lock_timer - delta, 0.0)
 	_movement_stun_timer = maxf(_movement_stun_timer - delta, 0.0)
+	_attack_stun_timer = maxf(_attack_stun_timer - delta, 0.0)
 	_dash_cooldown_timer = maxf(_dash_cooldown_timer - delta, 0.0)
 	_block_cooldown_timer = maxf(_block_cooldown_timer - delta, 0.0)
 	_combo_reset_timer = maxf(_combo_reset_timer - delta, 0.0)
@@ -234,6 +236,8 @@ func _handle_jump() -> void:
 
 func _handle_attack(delta: float) -> void:
 	_attack_cooldown_timer = maxf(_attack_cooldown_timer - delta, 0.0)
+	if _attack_stun_timer > 0.0:
+		return
 
 	if Input.is_action_just_pressed("attack"):
 		if _is_blocking:
@@ -360,6 +364,17 @@ func _apply_damage_to_part(part: BodyPart, damage: int) -> bool:
 	if part.actor is Player and multiplayer.has_multiplayer_peer():
 		request_network_damage(part.actor as Player, part.part_id, damage, "melee")
 		return true
+	if part.actor.has_method("is_melee_attack_active") and part.actor.is_melee_attack_active():
+		apply_clash_recoil(signf(global_position.x - part.actor.global_position.x))
+		if part.actor.has_method("apply_combat_stun"):
+			part.actor.apply_combat_stun(0.45)
+			var opposing_body := part.actor as CharacterBody2D
+			if is_instance_valid(opposing_body):
+				opposing_body.velocity.x = signf(opposing_body.global_position.x - global_position.x) * 260.0
+		var main := get_tree().current_scene
+		if is_instance_valid(main) and main.has_method("show_local_combat_message"):
+			main.show_local_combat_message((global_position + part.actor.global_position) * 0.5, "拼刀！")
+		return true
 	return part.receive_damage(damage, global_position)
 
 
@@ -380,12 +395,13 @@ func server_apply_part_damage(
 	part_id: StringName,
 	damage: int,
 	source_position: Vector2,
-	attacker_peer_id: int
+	attacker_peer_id: int,
+	damage_kind: String = "melee"
 ) -> bool:
 	_last_attacker_peer_id = attacker_peer_id
 	var part: BodyPart = _parts.get(part_id)
 	if is_instance_valid(part):
-		return part.receive_damage(damage, source_position)
+		return part.receive_damage(damage, source_position, damage_kind)
 	return false
 
 
@@ -434,8 +450,8 @@ func apply_pvp_upgrade(upgrade_index: int) -> void:
 
 @rpc("any_peer", "call_local", "reliable")
 func reset_for_pvp(spawn_position: Vector2) -> void:
-	attack_damage = 3
-	move_speed = 320.0
+	attack_damage = 4
+	move_speed = 300.0
 	_attack_speed_multiplier = 1.0
 	_arm_attack_multiplier = 1.0
 	_attack_damage_multiplier = 1.0
@@ -444,16 +460,20 @@ func reset_for_pvp(spawn_position: Vector2) -> void:
 	_dash_multiplier = 1.0
 	_extra_jumps = 0
 	_extra_jumps_left = 0
-	spell_damage = 2
+	spell_damage = 5
 	max_mana = 100
-	mana_regen_per_second = 8.0
+	mana_regen_per_second = 7.0
 	dash_cooldown = 0.65
 	_attack_area.scale.x = 1.0
 	_can_block = true
 	_block_cooldown_timer = 0.0
+	_movement_stun_timer = 0.0
+	_attack_stun_timer = 0.0
 	_stop_block(false)
 	_is_dead = false
 	_last_attacker_peer_id = 0
+	_mana = max_mana
+	mana_changed.emit(_mana, max_mana)
 	collision_layer = 2
 	collision_mask = 1
 	modulate = Color.WHITE
@@ -504,6 +524,11 @@ func _receive_network_state(
 
 func is_network_attack_active() -> bool:
 	return _attack_phase == AttackPhase.ACTIVE
+
+
+func is_facing_position(target_x: float) -> bool:
+	var direction := signf(target_x - global_position.x)
+	return is_zero_approx(direction) or direction == signf(_visual.scale.x)
 
 
 func get_network_attack_kind() -> int:
@@ -631,9 +656,11 @@ func can_receive_part_damage() -> bool:
 	return not _is_dead and _invincibility_timer <= 0.0
 
 
-func modify_incoming_damage(amount: int, source_position: Vector2) -> int:
+func modify_incoming_damage(amount: int, source_position: Vector2, damage_kind: String = "melee") -> int:
 	if not _is_blocking:
 		return amount
+	if damage_kind == "spell":
+		return 0
 	if _block_timer <= perfect_block_duration:
 		_stun_attacker(source_position)
 		return 0
@@ -698,14 +725,33 @@ func _stun_attacker(source_position: Vector2) -> void:
 	if not is_instance_valid(attacker):
 		return
 	if attacker is Player and multiplayer.has_multiplayer_peer():
-		(attacker as Player).apply_network_stun.rpc(1.0)
+		(attacker as Player).apply_combat_stun.rpc(1.0)
+	elif attacker.has_method("apply_combat_stun"):
+		attacker.apply_combat_stun(1.0)
 	elif attacker.has_method("apply_movement_stun"):
 		attacker.apply_movement_stun(1.0)
 
 
 @rpc("any_peer", "call_local", "reliable")
 func apply_network_stun(duration: float) -> void:
-	apply_movement_stun(duration)
+	apply_combat_stun(duration)
+
+
+@rpc("any_peer", "call_local", "reliable")
+func apply_combat_stun(duration: float) -> void:
+	_movement_stun_timer = maxf(_movement_stun_timer, duration)
+	_attack_stun_timer = maxf(_attack_stun_timer, duration)
+	velocity.x = 0.0
+	_attack_phase = AttackPhase.NONE
+	_attack_timer = 0.0
+	_combo_queued = false
+	_slash_visual.visible = false
+
+
+@rpc("any_peer", "call_local", "reliable")
+func apply_clash_recoil(direction: float) -> void:
+	apply_combat_stun(0.45)
+	velocity.x = direction * 260.0
 
 
 func apply_movement_stun(duration: float) -> void:
@@ -727,6 +773,18 @@ func get_block_cooldown_time() -> float:
 
 func get_movement_stun_time() -> float:
 	return _movement_stun_timer
+
+
+func get_attack_stun_time() -> float:
+	return _attack_stun_timer
+
+
+func is_perfect_block_active() -> bool:
+	return _is_blocking and _block_timer <= perfect_block_duration
+
+
+func is_guarding() -> bool:
+	return _is_blocking
 
 
 func is_dash_invulnerable() -> bool:
@@ -871,13 +929,13 @@ func apply_attack_upgrade() -> void:
 
 
 func apply_attack_speed_upgrade() -> void:
-	_attack_speed_multiplier += 0.20
+	_attack_speed_multiplier += 0.12
 	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 
 func apply_max_health_upgrade() -> void:
 	for part in _parts.values():
-		(part as BodyPart).increase_max_health(2, 2)
+		(part as BodyPart).increase_max_health(1, 1)
 	_refresh_body_health()
 
 
@@ -888,24 +946,24 @@ func apply_upgrade(upgrade_id: String) -> void:
 		"attack_speed":
 			apply_attack_speed_upgrade()
 		"move_speed":
-			move_speed *= 1.3
+			move_speed *= 1.15
 		"double_jump":
 			_extra_jumps = maxi(_extra_jumps, 1)
 			_extra_jumps_left = _extra_jumps
 		"attack_range":
-			_attack_area.scale.x *= 1.2
+			_attack_area.scale.x *= 1.12
 		"part_health":
 			apply_max_health_upgrade()
 		"magic_damage":
 			spell_damage += 1
 		"max_mana":
-			max_mana += 20
-			_mana = mini(_mana + 20, max_mana)
+			max_mana += 15
+			_mana = mini(_mana + 15, max_mana)
 			mana_changed.emit(_mana, max_mana)
 		"mana_regen":
-			mana_regen_per_second *= 1.25
+			mana_regen_per_second *= 1.2
 		"dash_cooldown":
-			dash_cooldown = maxf(0.25, dash_cooldown * 0.85)
+			dash_cooldown = maxf(0.3, dash_cooldown * 0.9)
 	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 
@@ -922,12 +980,12 @@ func get_attack_damage_multiplier() -> float:
 
 
 func _create_body_parts() -> void:
-	_add_body_part("head", "头部", 8, true, Vector2(22, 18), Vector2(0, -34), Color(0.45, 0.82, 1.0), 16)
-	_add_body_part("torso", "身体", 14, true, Vector2(28, 32), Vector2(0, -7), Color(0.18, 0.62, 0.96), 16)
-	_add_body_part("left_arm", "左臂", 7, false, Vector2(10, 28), Vector2(-21, -7), Color(0.28, 0.72, 1.0), 16)
-	_add_body_part("right_arm", "右臂", 7, false, Vector2(10, 28), Vector2(21, -7), Color(0.28, 0.72, 1.0), 16)
-	_add_body_part("left_leg", "左腿", 7, false, Vector2(11, 30), Vector2(-9, 24), Color(0.12, 0.45, 0.82), 16)
-	_add_body_part("right_leg", "右腿", 7, false, Vector2(11, 30), Vector2(9, 24), Color(0.12, 0.45, 0.82), 16)
+	_add_body_part("head", "头部", 7, true, Vector2(22, 18), Vector2(0, -34), Color(0.45, 0.82, 1.0), 16)
+	_add_body_part("torso", "身体", 11, true, Vector2(28, 32), Vector2(0, -7), Color(0.18, 0.62, 0.96), 16)
+	_add_body_part("left_arm", "左臂", 6, false, Vector2(10, 28), Vector2(-21, -7), Color(0.28, 0.72, 1.0), 16)
+	_add_body_part("right_arm", "右臂", 6, false, Vector2(10, 28), Vector2(21, -7), Color(0.28, 0.72, 1.0), 16)
+	_add_body_part("left_leg", "左腿", 6, false, Vector2(11, 30), Vector2(-9, 24), Color(0.12, 0.45, 0.82), 16)
+	_add_body_part("right_leg", "右腿", 6, false, Vector2(11, 30), Vector2(9, 24), Color(0.12, 0.45, 0.82), 16)
 
 
 func _add_body_part(

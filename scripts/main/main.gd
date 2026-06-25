@@ -36,17 +36,18 @@ var _pvp_kills: Dictionary = {}
 var _pvp_round_ending: bool = false
 var _multiplayer_map: String = MAP_ARENA
 var _offered_upgrades: Array[String] = []
+var _last_clash_time: Dictionary = {}
 const UPGRADE_POOL := [
 	{"id": "attack", "title": "攻击力", "detail": "+1 伤害"},
-	{"id": "attack_speed", "title": "攻击速度", "detail": "+20% 攻速"},
-	{"id": "move_speed", "title": "移动速度", "detail": "+30% 移速"},
+	{"id": "attack_speed", "title": "攻击速度", "detail": "+12% 攻速"},
+	{"id": "move_speed", "title": "移动速度", "detail": "+15% 移速"},
 	{"id": "double_jump", "title": "二段跳", "detail": "获得空中追加跳跃"},
-	{"id": "attack_range", "title": "攻击范围", "detail": "+20% 剑击范围"},
-	{"id": "part_health", "title": "肢体强化", "detail": "每个部位生命 +2"},
+	{"id": "attack_range", "title": "攻击范围", "detail": "+12% 剑击范围"},
+	{"id": "part_health", "title": "肢体强化", "detail": "每个部位生命 +1"},
 	{"id": "magic_damage", "title": "魔法强化", "detail": "法术伤害 +1"},
-	{"id": "max_mana", "title": "魔力扩容", "detail": "魔法上限 +20"},
-	{"id": "mana_regen", "title": "魔力循环", "detail": "回魔速度 +25%"},
-	{"id": "dash_cooldown", "title": "疾风步", "detail": "冲刺冷却 -15%"},
+	{"id": "max_mana", "title": "魔力扩容", "detail": "魔法上限 +15"},
+	{"id": "mana_regen", "title": "魔力循环", "detail": "回魔速度 +20%"},
+	{"id": "dash_cooldown", "title": "疾风步", "detail": "冲刺冷却 -10%"},
 ]
 
 @onready var _player: Player = $Player
@@ -338,13 +339,61 @@ func _server_apply_pvp_damage(
 		if not attacker.is_network_attack_active():
 			return
 		damage = attacker.get_network_melee_damage()
+		if victim.is_perfect_block_active():
+			attacker.apply_combat_stun.rpc(1.0)
+			_show_combat_message.rpc((attacker.global_position + victim.global_position) * 0.5, "完美格挡！")
+			return
+		if victim.is_network_attack_active() \
+			and attacker.is_facing_position(victim.global_position.x) \
+			and victim.is_facing_position(attacker.global_position.x) \
+			and _can_trigger_clash(attacker_peer_id, victim_peer_id):
+			attacker.apply_clash_recoil.rpc(signf(attacker.global_position.x - victim.global_position.x))
+			victim.apply_clash_recoil.rpc(signf(victim.global_position.x - attacker.global_position.x))
+			_show_combat_message.rpc((attacker.global_position + victim.global_position) * 0.5, "拼刀！")
+			return
 	else:
+		if victim.is_guarding():
+			_show_combat_message.rpc(victim.global_position + Vector2(0, -70), "魔法免疫")
+			return
 		damage = attacker.get_spell_damage()
 	var allowed_distance := 950.0 if damage_kind == "spell" else 190.0
 	if attacker.global_position.distance_to(victim.global_position) > allowed_distance:
 		return
-	if victim.server_apply_part_damage(part_id, damage, attacker.global_position, attacker_peer_id):
+	if victim.server_apply_part_damage(part_id, damage, attacker.global_position, attacker_peer_id, damage_kind):
 		_sync_body_state.rpc(victim_peer_id, victim.get_body_state(), attacker_peer_id)
+
+
+func _can_trigger_clash(first_peer_id: int, second_peer_id: int) -> bool:
+	var low := mini(first_peer_id, second_peer_id)
+	var high := maxi(first_peer_id, second_peer_id)
+	var key := "%d:%d" % [low, high]
+	var now := Time.get_ticks_msec()
+	if now - int(_last_clash_time.get(key, -1000)) < 500:
+		return false
+	_last_clash_time[key] = now
+	return true
+
+
+@rpc("authority", "call_local", "reliable")
+func _show_combat_message(world_position: Vector2, message: String) -> void:
+	show_local_combat_message(world_position, message)
+
+
+func show_local_combat_message(world_position: Vector2, message: String) -> void:
+	var label := Label.new()
+	label.text = message
+	label.position = world_position - Vector2(90, 85)
+	label.size = Vector2(180, 45)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 24)
+	label.add_theme_color_override("font_color", Color(1.0, 0.82, 0.22))
+	add_child(label)
+	var tween := label.create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(label, "position:y", label.position.y - 35.0, 0.55)
+	tween.tween_property(label, "modulate:a", 0.0, 0.55)
+	tween.set_parallel(false)
+	tween.tween_callback(label.queue_free)
 
 
 @rpc("authority", "call_remote", "reliable")

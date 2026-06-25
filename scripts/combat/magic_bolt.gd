@@ -31,5 +31,5 @@ func _on_area_entered(area: Area2D) -> void:
 			if is_instance_valid(caster) and caster is Player:
 				(caster as Player).request_network_damage(part.actor as Player, part.part_id, damage, "spell")
 			queue_free()
-		elif part.receive_damage(damage, global_position):
+		elif part.receive_damage(damage, global_position, "spell"):
 			queue_free()

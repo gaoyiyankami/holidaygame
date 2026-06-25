@@ -8,8 +8,8 @@ func _ready() -> void:
 
 	var player := $Main/Player as Player
 	var enemy := $Main/TrainingDummy as TrainingDummy
-	var base_stats_ready := player.get_health() == 50 and player.max_health == 50 \
-		and player.attack_damage == 3
+	var base_stats_ready := player.get_health() == 42 and player.max_health == 42 \
+		and player.attack_damage == 4
 	var enemy_start_x := enemy.global_position.x
 
 	await get_tree().create_timer(1.0).timeout
@@ -29,7 +29,7 @@ func _ready() -> void:
 	attack_button.pressed.emit()
 	await get_tree().create_timer(0.8).timeout
 
-	var attack_upgraded := player.attack_damage == 4
+	var attack_upgraded := player.attack_damage == 5
 	var next_enemy: TrainingDummy
 	for child in $Main.get_children():
 		if child is TrainingDummy:
