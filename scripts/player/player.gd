@@ -874,7 +874,6 @@ func on_body_part_damaged(part: BodyPart, _amount: int, source_position: Vector2
 	_dash_timer = 0.0
 	_slash_visual.visible = false
 	_dash_visual.visible = false
-	_health_regen_timer = 0.0
 
 	var knockback_direction := signf(global_position.x - source_position.x)
 	if is_zero_approx(knockback_direction):

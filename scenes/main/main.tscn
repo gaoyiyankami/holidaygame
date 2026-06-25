@@ -275,11 +275,8 @@ color = Color(0.6, 0.2, 0.25, 1)
 [node name="Player" parent="." instance=ExtResource("1_player")]
 position = Vector2(170, 610)
 
-[node name="TrainingDummy" parent="." instance=ExtResource("2_enemy")]
-position = Vector2(560, 602)
-
 [node name="EnemySpawn" type="Marker2D" parent="."]
-position = Vector2(1040, 602)
+position = Vector2(560, 602)
 
 [node name="UI" type="CanvasLayer" parent="."]
 process_mode = 3

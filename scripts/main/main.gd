@@ -107,8 +107,6 @@ func _ready() -> void:
 	_on_player_stats_changed(_player.attack_damage, _player.get_attack_speed_bonus())
 	_update_wave_label()
 
-	_current_enemy = $TrainingDummy as TrainingDummy
-	_connect_enemy(_current_enemy)
 	_player.set_controls_enabled(false)
 	_network_panel.visible = false
 	_set_game_active(false)
@@ -123,6 +121,8 @@ func _start_single_player() -> void:
 	_start_menu.visible = false
 	_network_panel.visible = false
 	_set_game_active(true)
+	if not is_instance_valid(_current_enemy):
+		_spawn_next_enemy()
 
 
 func _show_multiplayer_menu() -> void:
@@ -138,6 +138,7 @@ func _show_start_menu() -> void:
 
 
 func _set_game_active(active: bool) -> void:
+	$BackgroundLayer.visible = active
 	for child in get_children():
 		if child is CanvasItem and child != $UI and child not in [$HallMap, $PvPMap]:
 			(child as CanvasItem).visible = active
@@ -598,6 +599,7 @@ func _finish_upgrade(message: String) -> void:
 
 func _spawn_next_enemy() -> void:
 	var enemy := ENEMY_SCENE.instantiate() as TrainingDummy
+	enemy.name = "TrainingDummy"
 	enemy.max_health = 5 + _wave
 	enemy.move_speed = 105.0 + (_wave - 1) * 7.0
 	enemy.attack_cooldown = maxf(0.55, 1.0 - (_wave - 1) * 0.04)
