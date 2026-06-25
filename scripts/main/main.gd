@@ -39,6 +39,7 @@ var _offered_upgrades: Array[String] = []
 var _last_clash_time: Dictionary = {}
 var _last_melee_swing: Dictionary = {}
 var _last_combat_effect: Dictionary = {}
+var _player_position_history: Dictionary = {}
 var _last_regeneration_time: Dictionary = {}
 var _player_names: Dictionary = {}
 var _player_avatars: Dictionary = {}
@@ -47,6 +48,8 @@ var _pvp_upgrade_selection_active: bool = false
 var _selected_avatar_base64: String = ""
 var _ping_timer: float = 0.0
 var _smoothed_latency_msec: float = 0.0
+var _server_clock_offset_msec: float = 0.0
+const POSITION_HISTORY_MSEC := 600
 const UPGRADE_POOL := [
 	{"id": "attack", "title": "攻击力", "detail": "+1 伤害"},
 	{"id": "attack_speed", "title": "攻击速度", "detail": "+20% 攻速"},
@@ -106,7 +109,7 @@ func _process(delta: float) -> void:
 		return
 	_ping_timer = 0.5
 	if multiplayer.is_server():
-		_ping_label.text = "延迟 0 ms（主机）· 同步 60 Hz"
+		_ping_label.text = "延迟 0 ms（主机）· 动态同步 12–60 Hz"
 	else:
 		_ping_server.rpc_id(1, Time.get_ticks_msec())
 
@@ -508,17 +511,33 @@ func _sync_player_avatars(avatars: Dictionary) -> void:
 @rpc("any_peer", "call_remote", "unreliable")
 func _ping_server(sent_msec: int) -> void:
 	if multiplayer.is_server():
-		_ping_reply.rpc_id(multiplayer.get_remote_sender_id(), sent_msec)
+		_ping_reply.rpc_id(
+			multiplayer.get_remote_sender_id(), sent_msec, Time.get_ticks_msec()
+		)
 
 
 @rpc("authority", "call_remote", "unreliable")
-func _ping_reply(sent_msec: int) -> void:
-	var latency := maxi(Time.get_ticks_msec() - sent_msec, 0)
+func _ping_reply(sent_msec: int, server_msec: int) -> void:
+	var receive_msec := Time.get_ticks_msec()
+	var latency := maxi(receive_msec - sent_msec, 0)
 	_smoothed_latency_msec = float(latency) if _smoothed_latency_msec <= 0.0 \
 		else lerpf(_smoothed_latency_msec, float(latency), 0.4)
-	_ping_label.text = "延迟 %d ms · 同步 60 Hz" % roundi(_smoothed_latency_msec)
+	var estimated_server_now := float(server_msec) + float(latency) * 0.5
+	var measured_offset := estimated_server_now - float(receive_msec)
+	_server_clock_offset_msec = measured_offset if is_zero_approx(
+		_server_clock_offset_msec
+	) else lerpf(_server_clock_offset_msec, measured_offset, 0.25)
+	_ping_label.text = "延迟 %d ms · 动态同步 12–60 Hz" % roundi(
+		_smoothed_latency_msec
+	)
 	_ping_label.modulate = Color(0.4, 1.0, 0.5) if latency < 80 \
 		else Color(1.0, 0.82, 0.25) if latency < 160 else Color(1.0, 0.3, 0.25)
+
+
+func get_estimated_server_msec() -> int:
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		return Time.get_ticks_msec()
+	return roundi(float(Time.get_ticks_msec()) + _server_clock_offset_msec)
 
 
 func submit_player_network_state(
@@ -527,28 +546,19 @@ func submit_player_network_state(
 	network_position: Vector2,
 	network_velocity: Vector2,
 	facing: float,
-	attack_phase: int,
-	attack_kind: int,
-	blocking: bool,
-	dashing: bool,
-	animation_time: float,
-	sword_rotation: float,
-	slash_visible: bool,
-	shield_rotation: float
+	sample_server_msec: int
 ) -> void:
 	if not multiplayer.has_multiplayer_peer() or not _pvp_mode:
 		return
 	if multiplayer.is_server():
 		_server_accept_player_network_state(
 			peer_id, state_sequence, network_position, network_velocity, facing,
-			attack_phase, attack_kind, blocking, dashing, animation_time,
-			sword_rotation, slash_visible, shield_rotation
+			sample_server_msec
 		)
 	else:
 		_submit_player_network_state.rpc_id(
 			1, peer_id, state_sequence, network_position, network_velocity, facing,
-			attack_phase, attack_kind, blocking, dashing, animation_time,
-			sword_rotation, slash_visible, shield_rotation
+			sample_server_msec
 		)
 
 
@@ -559,21 +569,13 @@ func _submit_player_network_state(
 	network_position: Vector2,
 	network_velocity: Vector2,
 	facing: float,
-	attack_phase: int,
-	attack_kind: int,
-	blocking: bool,
-	dashing: bool,
-	animation_time: float,
-	sword_rotation: float,
-	slash_visible: bool,
-	shield_rotation: float
+	sample_server_msec: int
 ) -> void:
 	if not multiplayer.is_server() or multiplayer.get_remote_sender_id() != peer_id:
 		return
 	_server_accept_player_network_state(
 		peer_id, state_sequence, network_position, network_velocity, facing,
-		attack_phase, attack_kind, blocking, dashing, animation_time,
-		sword_rotation, slash_visible, shield_rotation
+		sample_server_msec
 	)
 
 
@@ -583,32 +585,22 @@ func _server_accept_player_network_state(
 	network_position: Vector2,
 	network_velocity: Vector2,
 	facing: float,
-	attack_phase: int,
-	attack_kind: int,
-	blocking: bool,
-	dashing: bool,
-	animation_time: float,
-	sword_rotation: float,
-	slash_visible: bool,
-	shield_rotation: float
+	sample_server_msec: int
 ) -> void:
 	var player := get_node_or_null("Player_%d" % peer_id) as Player
 	if not is_instance_valid(player):
 		return
+	_record_player_position(peer_id, sample_server_msec, network_position)
 	if peer_id != multiplayer.get_unique_id():
 		player.receive_network_state(
-			state_sequence, network_position, network_velocity, facing,
-			attack_phase, attack_kind, blocking, dashing, animation_time,
-			sword_rotation, slash_visible, shield_rotation, 0.0, true
+			state_sequence, network_position, network_velocity, facing, 0.0, true
 		)
 	for target_peer_id in multiplayer.get_peers():
 		if target_peer_id == peer_id:
 			continue
 		_receive_player_network_state.rpc_id(
 			target_peer_id, peer_id, state_sequence, network_position,
-			network_velocity, facing, attack_phase, attack_kind, blocking,
-			dashing, animation_time, sword_rotation, slash_visible,
-			shield_rotation
+			network_velocity, facing
 		)
 
 
@@ -618,15 +610,7 @@ func _receive_player_network_state(
 	state_sequence: int,
 	network_position: Vector2,
 	network_velocity: Vector2,
-	facing: float,
-	attack_phase: int,
-	attack_kind: int,
-	blocking: bool,
-	dashing: bool,
-	animation_time: float,
-	sword_rotation: float,
-	slash_visible: bool,
-	shield_rotation: float
+	facing: float
 ) -> void:
 	if peer_id == multiplayer.get_unique_id():
 		return
@@ -634,15 +618,38 @@ func _receive_player_network_state(
 	if not is_instance_valid(player):
 		return
 	var prediction_seconds := clampf(
-		maxf(_smoothed_latency_msec / 1000.0, 1.0 / 60.0),
+		maxf(_smoothed_latency_msec * 0.5 / 1000.0 + 1.0 / 60.0, 1.0 / 60.0),
 		1.0 / 60.0,
-		0.12
+		0.08
 	)
 	player.receive_network_state(
-		state_sequence, network_position, network_velocity, facing,
-		attack_phase, attack_kind, blocking, dashing, animation_time,
-		sword_rotation, slash_visible, shield_rotation, prediction_seconds
+		state_sequence, network_position, network_velocity, facing, prediction_seconds
 	)
+
+
+func _record_player_position(peer_id: int, sample_msec: int, position: Vector2) -> void:
+	var server_now := Time.get_ticks_msec()
+	var safe_time := clampi(sample_msec, server_now - POSITION_HISTORY_MSEC, server_now + 80)
+	var history: Array = _player_position_history.get(peer_id, [])
+	history.append({"time": safe_time, "position": position})
+	var cutoff := server_now - POSITION_HISTORY_MSEC
+	while history.size() > 2 and int(history[0].time) < cutoff:
+		history.pop_front()
+	_player_position_history[peer_id] = history
+
+
+func _historical_player_position(peer_id: int, target_msec: int, fallback: Vector2) -> Vector2:
+	var history: Array = _player_position_history.get(peer_id, [])
+	if history.is_empty():
+		return fallback
+	var best_position := fallback
+	var best_delta := 1000000
+	for sample in history:
+		var delta := absi(int(sample.time) - target_msec)
+		if delta < best_delta:
+			best_delta = delta
+			best_position = sample.position
+	return best_position
 
 
 func request_player_combat_effect(
@@ -737,19 +744,20 @@ func request_pvp_melee_swing(
 	attack_kind: int,
 	combo_step: int,
 	facing: float,
-	attack_position: Vector2 = Vector2.INF
+	attack_position: Vector2 = Vector2.INF,
+	attack_server_msec: int = 0
 ) -> void:
 	if not multiplayer.has_multiplayer_peer() or not _pvp_mode:
 		return
 	if multiplayer.is_server():
 		_server_resolve_pvp_melee_swing(
 			attacker_peer_id, attack_sequence, attack_kind, combo_step, facing,
-			attack_position
+			attack_position, attack_server_msec
 		)
 	else:
 		_request_pvp_melee_swing.rpc_id(
 			1, attacker_peer_id, attack_sequence, attack_kind, combo_step, facing,
-			attack_position
+			attack_position, attack_server_msec
 		)
 
 
@@ -760,13 +768,14 @@ func _request_pvp_melee_swing(
 	attack_kind: int,
 	combo_step: int,
 	facing: float,
-	attack_position: Vector2
+	attack_position: Vector2,
+	attack_server_msec: int
 ) -> void:
 	if not multiplayer.is_server() or multiplayer.get_remote_sender_id() != attacker_peer_id:
 		return
 	_server_resolve_pvp_melee_swing(
 		attacker_peer_id, attack_sequence, attack_kind, combo_step, facing,
-		attack_position
+		attack_position, attack_server_msec
 	)
 
 
@@ -776,7 +785,8 @@ func _server_resolve_pvp_melee_swing(
 	attack_kind: int,
 	combo_step: int,
 	facing: float,
-	attack_position: Vector2 = Vector2.INF
+	attack_position: Vector2 = Vector2.INF,
+	attack_server_msec: int = 0
 ) -> void:
 	if not _pvp_mode or _pvp_round_ending:
 		return
@@ -809,13 +819,18 @@ func _server_resolve_pvp_melee_swing(
 			vertical_reach = 105.0
 	var direction := signf(facing)
 	var damage := attacker.get_melee_damage_for(attack_kind, combo_step)
+	var resolved_attack_msec := attack_server_msec if attack_server_msec > 0 \
+		else Time.get_ticks_msec()
 	for victim_peer_id in _network_players:
 		if int(victim_peer_id) == attacker_peer_id:
 			continue
 		var victim := get_node_or_null("Player_%d" % victim_peer_id) as Player
 		if not is_instance_valid(victim):
 			continue
-		var offset := victim.global_position - attacker.global_position
+		var victim_hit_position := _historical_player_position(
+			int(victim_peer_id), resolved_attack_msec, victim.global_position
+		)
+		var offset := victim_hit_position - attacker.global_position
 		var forward_distance := offset.x * direction
 		if forward_distance < -24.0 or forward_distance > reach \
 			or absf(offset.y) > vertical_reach:
@@ -828,7 +843,7 @@ func _server_resolve_pvp_melee_swing(
 		var part_id := victim.get_best_pvp_hit_part(hit_position, low_attack)
 		if part_id != &"":
 			_server_apply_pvp_damage(
-				attacker_peer_id, int(victim_peer_id), part_id, damage, "melee"
+				attacker_peer_id, int(victim_peer_id), part_id, damage, "melee", true
 			)
 
 
@@ -910,7 +925,8 @@ func _server_apply_pvp_damage(
 	victim_peer_id: int,
 	part_id: StringName,
 	damage: int,
-	damage_kind: String
+	damage_kind: String,
+	melee_position_validated: bool = false
 ) -> void:
 	if not _pvp_mode or _pvp_round_ending or damage <= 0 or damage > 20:
 		return
@@ -952,7 +968,8 @@ func _server_apply_pvp_damage(
 			return
 		damage = attacker.get_spell_damage()
 	var allowed_distance := 950.0 if damage_kind == "spell" else 270.0
-	if attacker.global_position.distance_to(victim.global_position) > allowed_distance:
+	if not melee_position_validated \
+		and attacker.global_position.distance_to(victim.global_position) > allowed_distance:
 		return
 	var resolved_kind := "low" if damage_kind == "melee" \
 		and attacker.get_network_attack_kind() == Player.AttackKind.LOW else damage_kind
@@ -969,7 +986,7 @@ func _server_apply_pvp_damage(
 			)
 
 
-@rpc("authority", "call_local", "reliable")
+@rpc("authority", "call_local", "reliable", 3)
 func _apply_pvp_knockback(peer_id: int, knockback_velocity: Vector2) -> void:
 	var player := get_node_or_null("Player_%d" % peer_id) as Player
 	if is_instance_valid(player):
@@ -1009,7 +1026,7 @@ func show_local_combat_message(world_position: Vector2, message: String) -> void
 	tween.tween_callback(label.queue_free)
 
 
-@rpc("authority", "call_remote", "reliable")
+@rpc("authority", "call_remote", "reliable", 3)
 func _sync_body_state(peer_id: int, state: Dictionary, attacker_peer_id: int) -> void:
 	var player := get_node_or_null("Player_%d" % peer_id) as Player
 	if is_instance_valid(player):
@@ -1056,6 +1073,7 @@ func _remove_network_player(peer_id: int) -> void:
 	_pvp_kills.erase(peer_id)
 	_last_melee_swing.erase(peer_id)
 	_last_combat_effect.erase(peer_id)
+	_player_position_history.erase(peer_id)
 	_pending_pvp_upgrade_offers.erase(peer_id)
 	_update_pvp_scoreboard()
 	_network_status.text = "当前玩家：%d / 8" % _network_players.size()

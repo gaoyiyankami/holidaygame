@@ -53,6 +53,7 @@ signal pvp_defeated(victim_peer_id: int, killer_peer_id: int)
 @export_category("Health")
 @export var max_health: int = 5
 @export var invincibility_duration: float = 0.75
+@export var pvp_invincibility_duration: float = 0.22
 @export var hurt_lock_duration: float = 0.18
 @export var knockback_speed: float = 460.0
 
@@ -105,9 +106,13 @@ var _network_target_position: Vector2
 var _network_target_velocity: Vector2
 var _network_facing: float = 1.0
 var _network_send_timer: float = 0.0
+var _network_heartbeat_timer: float = 0.0
 var _network_state_sequence: int = 0
 var _last_received_state_sequence: int = -1
 var _network_prediction_seconds: float = 0.025
+var _last_network_sent_position: Vector2
+var _last_network_sent_velocity: Vector2
+var _last_network_sent_facing: float = 1.0
 var _network_attack_sequence: int = 0
 var _network_effect_sequence: int = 0
 var _hit_targets: Dictionary = {}
@@ -146,6 +151,7 @@ func _ready() -> void:
 	_mana = max_mana
 	mana_changed.emit(_mana, max_mana)
 	_network_target_position = global_position
+	_last_network_sent_position = global_position
 
 
 func _game_controller() -> Node:
@@ -192,9 +198,24 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_animate_body_parts()
 	_network_send_timer -= delta
+	_network_heartbeat_timer -= delta
 	if multiplayer.has_multiplayer_peer() and _network_send_timer <= 0.0:
-		_network_send_timer = 1.0 / 60.0
+		var facing := signf(_visual.scale.x)
+		var active_motion := velocity.length_squared() > 625.0 \
+			or _dash_timer > 0.0 or _attack_phase != AttackPhase.NONE or _is_blocking
+		var state_changed := global_position.distance_squared_to(
+			_last_network_sent_position
+		) > 0.25 \
+			or velocity.distance_squared_to(_last_network_sent_velocity) > 4.0 \
+			or not is_equal_approx(facing, _last_network_sent_facing)
+		_network_send_timer = 1.0 / (60.0 if active_motion else 12.0)
+		if not state_changed and _network_heartbeat_timer > 0.0:
+			return
+		_network_heartbeat_timer = 0.25
 		_network_state_sequence += 1
+		_last_network_sent_position = global_position
+		_last_network_sent_velocity = velocity
+		_last_network_sent_facing = facing
 		var main := _game_controller()
 		if is_instance_valid(main) and main.has_method("submit_player_network_state"):
 			main.submit_player_network_state(
@@ -202,15 +223,8 @@ func _physics_process(delta: float) -> void:
 				_network_state_sequence,
 				global_position,
 				velocity,
-				_visual.scale.x,
-				int(_attack_phase),
-				int(_attack_kind),
-				_is_blocking,
-				_dash_timer > 0.0,
-				_animation_time,
-				_sword_pivot.rotation,
-				_slash_visual.visible,
-				_shield.rotation
+				facing,
+				main.get_estimated_server_msec()
 			)
 
 
@@ -366,7 +380,8 @@ func _begin_active_attack() -> void:
 				int(_attack_kind),
 				_combo_step,
 				signf(_visual.scale.x),
-				global_position
+				global_position,
+				main.get_estimated_server_msec()
 			)
 	if _attack_kind == AttackKind.AIR:
 		velocity.y = 220.0
@@ -612,38 +627,16 @@ func receive_network_state(
 	network_position: Vector2,
 	network_velocity: Vector2,
 	facing: float,
-	attack_phase: int,
-	attack_kind: int,
-	blocking: bool,
-	dashing: bool,
-	animation_time: float,
-	sword_rotation: float,
-	slash_visible: bool,
-	shield_rotation: float,
 	prediction_seconds: float,
 	server_direct: bool = false
 ) -> void:
 	if state_sequence <= _last_received_state_sequence:
 		return
 	_last_received_state_sequence = state_sequence
-	var was_blocking := _is_blocking
 	_network_target_position = network_position
 	_network_target_velocity = network_velocity
 	_network_facing = facing
 	_network_prediction_seconds = clampf(prediction_seconds, 0.0, 0.12)
-	_attack_phase = attack_phase as AttackPhase
-	_attack_kind = attack_kind as AttackKind
-	_is_blocking = blocking
-	if blocking and not was_blocking:
-		_block_timer = 0.0
-	elif not blocking:
-		_block_timer = 0.0
-	_animation_time = animation_time
-	_sword_pivot.rotation = sword_rotation
-	_slash_visual.visible = slash_visible
-	_shield.rotation = shield_rotation
-	_shield.modulate = Color(0.55, 0.9, 1.0, 1.0) if blocking else Color.WHITE
-	_dash_visual.visible = dashing
 	if server_direct:
 		global_position = network_position
 		velocity = network_velocity
@@ -1002,8 +995,10 @@ func get_attack_kind() -> AttackKind:
 
 
 func on_body_part_damaged(part: BodyPart, _amount: int, source_position: Vector2) -> void:
-	_invincibility_timer = invincibility_duration
-	_hurt_lock_timer = hurt_lock_duration
+	_invincibility_timer = pvp_invincibility_duration if _pvp_enabled \
+		else invincibility_duration
+	_hurt_lock_timer = minf(hurt_lock_duration, 0.12) if _pvp_enabled \
+		else hurt_lock_duration
 	_attack_timer = 0.0
 	_attack_phase = AttackPhase.NONE
 	_combo_queued = false

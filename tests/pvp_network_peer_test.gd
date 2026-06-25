@@ -53,7 +53,10 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(local_player):
 		return
 	if _role == "victim":
-		if not _knockback_seen and absf(local_player.velocity.x) > 100.0:
+		Input.action_press("move_right")
+		if not _knockback_seen and (
+			absf(local_player.velocity.x) > 400.0 or local_player.velocity.y < -150.0
+		):
 			_knockback_seen = true
 			print("E2E VICTIM KNOCKBACK velocity=%s" % local_player.velocity)
 		local_player.global_position = Vector2(780, 610)
@@ -77,8 +80,8 @@ func _process(delta: float) -> void:
 		_initial_attack_damage = local_player.attack_damage
 		_initial_upgrade_count = local_player.get_applied_upgrade_count()
 	_attack_timer -= delta
-	if _attack_timer <= 0.0 and _attacks_sent < 12:
-		_attack_timer = 0.9
+	if _attack_timer <= 0.0 and _attacks_sent < 14:
+		_attack_timer = 0.28
 		_attacks_sent += 1
 		local_player.call("_start_attack", 1)
 		local_player.call("_begin_active_attack")
@@ -101,7 +104,7 @@ func _process(delta: float) -> void:
 		var upgraded: bool = local_player.get_applied_upgrade_count() > _initial_upgrade_count
 		if not upgraded and _choice_wait < 3.0:
 			return
-		var relay_fast := _remote_state_sequence >= 30
+		var relay_fast := _remote_state_sequence >= 20
 		print("E2E ATTACKER RESULT relay=%s seq=%d kills=%d upgraded=%s count=%d damage=%d" % [
 			_remote_state_seen,
 			_remote_state_sequence,
