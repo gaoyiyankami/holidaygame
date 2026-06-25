@@ -107,6 +107,26 @@ func _process(delta: float) -> void:
 		_ping_server.rpc_id(1, Time.get_ticks_msec())
 
 
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo \
+		and event.keycode == KEY_ESCAPE and $BackgroundLayer.visible:
+		get_viewport().set_input_as_handled()
+		_return_to_main_menu()
+
+
+func _return_to_main_menu() -> void:
+	if _is_dedicated_server():
+		return
+	_player.clear_input_state()
+	_player.set_controls_enabled(false)
+	if multiplayer.has_multiplayer_peer():
+		multiplayer.multiplayer_peer = null
+	# Reloading guarantees that spawned players, score state, enemies and
+	# network authority are all reset before the menu is shown again.
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
 func _ready() -> void:
 	_player.health_changed.connect(_on_player_health_changed)
 	_player.mana_changed.connect(_on_player_mana_changed)

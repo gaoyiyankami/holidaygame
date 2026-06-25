@@ -290,7 +290,7 @@ offset_bottom = 160.0
 theme_override_styles/panel = SubResource("StyleBox_panel")
 
 [node name="Label" type="Label" parent="UI/HelpPanel"]
-text = "移动：A / D 或方向键\n跳跃：空格 / W / ↑\n攻击：J / 鼠标左键（S/↓+攻击为下段）\n冲刺：K / Shift    法术：L"
+text = "移动：A / D 或方向键\n跳跃：空格 / W / ↑\n攻击：J / 鼠标左键（S/↓+攻击为下段）\n冲刺：K / Shift    法术：L\n返回主菜单：Esc"
 theme_override_colors/font_color = Color(0.92, 0.96, 1, 1)
 theme_override_font_sizes/font_size = 20
 
