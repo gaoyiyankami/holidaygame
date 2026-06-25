@@ -66,7 +66,6 @@ var _gravity: float = 1600.0
 var _health: int
 var _mana: int
 var _mana_regen_buffer: float = 0.0
-var _next_health_regen_msec: int = 0
 var _rapid_regeneration: bool = false
 var _coyote_timer: float = 0.0
 var _jump_buffer_timer: float = 0.0
@@ -108,6 +107,7 @@ var _network_facing: float = 1.0
 var _hit_targets: Dictionary = {}
 var _parts: Dictionary = {}
 var _sword_tween: Tween
+var _health_regen_timer: Timer
 
 const MAGIC_BOLT_SCENE := preload("res://scenes/combat/magic_bolt.tscn")
 
@@ -126,6 +126,12 @@ func _ready() -> void:
 	add_to_group("player")
 	_gravity = float(ProjectSettings.get_setting("physics/2d/default_gravity", 1600.0))
 	_create_body_parts()
+	_health_regen_timer = Timer.new()
+	_health_regen_timer.name = "HealthRegenerationTimer"
+	_health_regen_timer.wait_time = float(health_regen_interval_msec) / 1000.0
+	_health_regen_timer.one_shot = false
+	_health_regen_timer.timeout.connect(_on_health_regeneration_timeout)
+	add_child(_health_regen_timer)
 	_refresh_body_health()
 	_mana = max_mana
 	mana_changed.emit(_mana, max_mana)
@@ -145,7 +151,6 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_regenerate_mana(delta)
-	_update_health_regeneration()
 	_update_timers(delta)
 	_update_block()
 	if _dash_timer > 0.0:
@@ -491,7 +496,9 @@ func reset_for_pvp(spawn_position: Vector2) -> void:
 	mana_regen_per_second = 7.0
 	health_regen_interval_msec = 6000
 	_rapid_regeneration = false
-	_next_health_regen_msec = 0
+	if is_instance_valid(_health_regen_timer):
+		_health_regen_timer.wait_time = 6.0
+		_health_regen_timer.stop()
 	dash_cooldown = 0.65
 	_attack_area.scale.x = 1.0
 	_can_block = true
@@ -891,20 +898,12 @@ func get_health() -> int:
 	return _health
 
 
-func _update_health_regeneration() -> void:
-	if _is_dead:
-		_next_health_regen_msec = 0
+func _on_health_regeneration_timeout() -> void:
+	if _is_dead or _health >= max_health:
+		_health_regen_timer.stop()
 		return
-	if _health >= max_health:
-		_next_health_regen_msec = 0
+	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
 		return
-	var now := Time.get_ticks_msec()
-	if _next_health_regen_msec <= 0:
-		_next_health_regen_msec = now + health_regen_interval_msec
-		return
-	if now < _next_health_regen_msec:
-		return
-	_next_health_regen_msec = now + health_regen_interval_msec
 	if multiplayer.has_multiplayer_peer():
 		var main := get_tree().current_scene
 		if is_instance_valid(main) and main.has_method("request_player_regeneration"):
@@ -948,7 +947,9 @@ func get_health_regen_interval_msec() -> int:
 
 
 func get_next_health_regen_msec() -> int:
-	return _next_health_regen_msec
+	if not is_instance_valid(_health_regen_timer) or _health_regen_timer.is_stopped():
+		return 0
+	return Time.get_ticks_msec() + roundi(_health_regen_timer.time_left * 1000.0)
 
 
 func has_rapid_regeneration() -> bool:
@@ -1102,8 +1103,9 @@ func apply_upgrade(upgrade_id: String) -> void:
 			if not _rapid_regeneration:
 				_rapid_regeneration = true
 				health_regen_interval_msec = 3000
-				_next_health_regen_msec = Time.get_ticks_msec() \
-					+ health_regen_interval_msec
+				_health_regen_timer.wait_time = 3.0
+				if _health < max_health:
+					_health_regen_timer.start()
 	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 
@@ -1149,6 +1151,13 @@ func _add_body_part(
 
 func _on_part_health_changed(_part: BodyPart) -> void:
 	_refresh_body_health()
+	if not is_instance_valid(_health_regen_timer):
+		return
+	if _is_dead or _health >= max_health:
+		_health_regen_timer.stop()
+	elif _health_regen_timer.is_stopped() \
+		and (not multiplayer.has_multiplayer_peer() or is_multiplayer_authority()):
+		_health_regen_timer.start()
 
 
 func _on_part_destroyed(part: BodyPart) -> void:

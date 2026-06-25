@@ -181,10 +181,13 @@ func _ready() -> void:
 	var regenerated_at_rest := player_arm.position.is_equal_approx(player_arm.rest_position) \
 		and is_zero_approx(player_arm.rotation)
 	player.set("health_regen_interval_msec", 50)
-	player.set("_next_health_regen_msec", 0)
+	var regen_timer := player.get_node("HealthRegenerationTimer") as Timer
+	regen_timer.wait_time = 0.05
+	regen_timer.stop()
 	var timed_regen_before := block_torso.health
 	block_torso.health = maxi(block_torso.health - 1, 0)
 	player.call("_refresh_body_health")
+	player.call("_on_part_health_changed", block_torso)
 	await get_tree().create_timer(0.07).timeout
 	var six_second_logic_works := block_torso.health == timed_regen_before
 	player.apply_upgrade("rapid_regeneration")
