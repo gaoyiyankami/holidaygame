@@ -23,6 +23,9 @@ func _ready() -> void:
 	main.call("_show_start_menu")
 	main.call("_show_multiplayer_menu")
 	main.get_node("UI/NetworkPanel/VBox/NameInput").text = "测试主机"
+	Input.action_press("move_right")
+	main.call("_release_text_input")
+	var text_input_clears_movement := not Input.is_action_pressed("move_right")
 	var separate_network_page: bool = not main.get_node("UI/StartMenu").visible \
 		and main.get_node("UI/NetworkPanel").visible \
 		and not main.get_node("Player").visible
@@ -65,8 +68,14 @@ func _ready() -> void:
 	var remote_player := main.get_node("Player_2") as Player
 	var host_player := main.get_node("Player_1") as Player
 	main.call("_sync_player_names", {1: "测试主机", 2: "测试玩家"})
+	var avatar_image := Image.create(8, 8, false, Image.FORMAT_RGBA8)
+	avatar_image.fill(Color(0.2, 0.7, 1.0, 1.0))
+	var avatar_base64 := Marshalls.raw_to_base64(avatar_image.save_png_to_buffer())
+	main.call("_sync_player_avatars", {1: avatar_base64, 2: avatar_base64})
 	var names_synced := host_player.get_player_display_name() == "测试主机" \
 		and remote_player.get_player_display_name() == "测试玩家"
+	var avatars_synced := host_player.get_node("Avatar").texture != null \
+		and remote_player.get_node("Avatar").texture != null
 	var overhead_health_ready := "50/50" in host_player.get_node("PlayerHealthLabel").text \
 		and "50/50" in remote_player.get_node("PlayerHealthLabel").text
 	host_player.position = Vector2(500, 610)
@@ -198,7 +207,7 @@ func _ready() -> void:
 		peer_ready,
 		player_ready,
 		ping_display_ready,
-		names_synced,
+		names_synced and avatars_synced and text_input_clears_movement,
 		overhead_health_ready and independent_health_labels,
 		mutual_damage_works,
 		pvp_map_ready,
@@ -228,7 +237,8 @@ func _ready() -> void:
 		and settings_page_ready and refresh_setting_applied \
 		and port_available and world_hidden_before_start \
 		and separate_network_page and peer_ready and player_ready and pvp_map_ready \
-		and ping_display_ready and names_synced and overhead_health_ready \
+		and ping_display_ready and names_synced and avatars_synced \
+		and text_input_clears_movement and overhead_health_ready \
 		and mutual_damage_works and independent_health_labels \
 		and map_selector_ready and arena_is_large and hall_hidden_in_arena \
 		and hall_collisions_disabled and arena_collisions_enabled \

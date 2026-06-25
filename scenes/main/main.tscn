@@ -378,9 +378,9 @@ theme_override_font_sizes/font_size = 25
 [node name="NetworkPanel" type="PanelContainer" parent="UI"]
 visible = false
 offset_left = 350.0
-offset_top = 100.0
+offset_top = 35.0
 offset_right = 930.0
-offset_bottom = 620.0
+offset_bottom = 685.0
 theme_override_styles/panel = SubResource("StyleBox_upgrade")
 
 [node name="VBox" type="VBoxContainer" parent="UI/NetworkPanel"]
@@ -400,6 +400,17 @@ text = "127.0.0.1"
 custom_minimum_size = Vector2(0, 55)
 placeholder_text = "多人游戏名字"
 text = "玩家"
+
+[node name="AvatarRow" type="HBoxContainer" parent="UI/NetworkPanel/VBox"]
+
+[node name="AvatarButton" type="Button" parent="UI/NetworkPanel/VBox/AvatarRow"]
+custom_minimum_size = Vector2(180, 50)
+text = "上传头像"
+
+[node name="AvatarStatus" type="Label" parent="UI/NetworkPanel/VBox/AvatarRow"]
+size_flags_horizontal = 3
+text = "未选择图片"
+vertical_alignment = 1
 
 [node name="PortRow" type="HBoxContainer" parent="UI/NetworkPanel/VBox"]
 
@@ -444,6 +455,14 @@ theme_override_font_sizes/font_size = 18
 custom_minimum_size = Vector2(0, 55)
 text = "返回主菜单"
 theme_override_font_sizes/font_size = 20
+
+[node name="AvatarFileDialog" type="FileDialog" parent="UI"]
+visible = false
+title = "选择玩家头像"
+size = Vector2i(760, 520)
+access = 2
+file_mode = 0
+filters = PackedStringArray("*.png ; PNG 图片", "*.jpg,*.jpeg ; JPEG 图片", "*.webp ; WebP 图片")
 
 [node name="StartMenu" type="PanelContainer" parent="UI"]
 offset_left = 390.0

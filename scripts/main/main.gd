@@ -39,6 +39,8 @@ var _offered_upgrades: Array[String] = []
 var _last_clash_time: Dictionary = {}
 var _last_regeneration_time: Dictionary = {}
 var _player_names: Dictionary = {}
+var _player_avatars: Dictionary = {}
+var _selected_avatar_base64: String = ""
 var _ping_timer: float = 0.0
 const UPGRADE_POOL := [
 	{"id": "attack", "title": "攻击力", "detail": "+1 伤害"},
@@ -69,6 +71,9 @@ const UPGRADE_POOL := [
 @onready var _network_panel: PanelContainer = $UI/NetworkPanel
 @onready var _address_input: LineEdit = $UI/NetworkPanel/VBox/AddressInput
 @onready var _name_input: LineEdit = $UI/NetworkPanel/VBox/NameInput
+@onready var _avatar_button: Button = $UI/NetworkPanel/VBox/AvatarRow/AvatarButton
+@onready var _avatar_status: Label = $UI/NetworkPanel/VBox/AvatarRow/AvatarStatus
+@onready var _avatar_file_dialog: FileDialog = $UI/AvatarFileDialog
 @onready var _port_input: SpinBox = $UI/NetworkPanel/VBox/PortRow/PortInput
 @onready var _host_button: Button = $UI/NetworkPanel/VBox/Buttons/HostButton
 @onready var _join_button: Button = $UI/NetworkPanel/VBox/Buttons/JoinButton
@@ -119,6 +124,14 @@ func _ready() -> void:
 	_back_button.pressed.connect(_show_start_menu)
 	_host_button.pressed.connect(_host_game)
 	_join_button.pressed.connect(_join_game)
+	_avatar_button.pressed.connect(_avatar_file_dialog.popup_centered)
+	_avatar_file_dialog.file_selected.connect(_on_avatar_file_selected)
+	_address_input.focus_entered.connect(_on_text_input_focus_entered)
+	_address_input.focus_exited.connect(_on_text_input_focus_exited)
+	_name_input.focus_entered.connect(_on_text_input_focus_entered)
+	_name_input.focus_exited.connect(_on_text_input_focus_exited)
+	_address_input.text_submitted.connect(func(_text: String) -> void: _release_text_input())
+	_name_input.text_submitted.connect(func(_text: String) -> void: _release_text_input())
 	_map_select.add_item("废弃大厅（小型）")
 	_map_select.add_item("大型 PvP 竞技场")
 	_map_select.selected = 1
@@ -247,6 +260,7 @@ func _selected_port() -> int:
 
 
 func _host_game() -> void:
+	_release_text_input()
 	var peer := ENetMultiplayerPeer.new()
 	var port := _selected_port()
 	var error := peer.create_server(port, MAX_CLIENTS)
@@ -256,7 +270,9 @@ func _host_game() -> void:
 	multiplayer.multiplayer_peer = peer
 	_prepare_existing_player_for_network()
 	_player_names[1] = _selected_player_name()
+	_player_avatars[1] = _selected_avatar_base64
 	_player.set_player_display_name(_player_names[1])
+	_player.set_avatar_base64(_selected_avatar_base64)
 	_network_players[1] = true
 	_pvp_kills[1] = 0
 	_network_status.text = "主机已开启，端口 %d（最多 8 人）" % port
@@ -270,6 +286,7 @@ func _host_game() -> void:
 
 
 func _join_game() -> void:
+	_release_text_input()
 	var address := _address_input.text.strip_edges()
 	if address.is_empty():
 		address = "127.0.0.1"
@@ -298,6 +315,7 @@ func _on_connected_to_server() -> void:
 	_set_game_active(true)
 	_set_pvp_mode(true)
 	_submit_player_name.rpc_id(1, _selected_player_name())
+	_submit_player_avatar.rpc_id(1, _selected_avatar_base64)
 
 
 func _is_dedicated_server() -> bool:
@@ -354,6 +372,7 @@ func _on_peer_connected(peer_id: int) -> void:
 	_spawn_network_player.rpc(peer_id)
 	_apply_multiplayer_map.rpc_id(peer_id, _multiplayer_map)
 	_sync_player_names.rpc_id(peer_id, _player_names)
+	_sync_player_avatars.rpc_id(peer_id, _player_avatars)
 	for existing_id in _network_players:
 		var existing := get_node_or_null("Player_%d" % existing_id) as Player
 		if is_instance_valid(existing):
@@ -376,6 +395,7 @@ func _spawn_network_player(peer_id: int) -> void:
 	player.configure_network_authority(peer_id)
 	player.set_pvp_enabled(_pvp_mode)
 	player.set_player_display_name(str(_player_names.get(peer_id, "玩家 %d" % peer_id)))
+	player.set_avatar_base64(str(_player_avatars.get(peer_id, "")))
 	player.pvp_defeated.connect(_on_pvp_player_defeated)
 	_network_players[peer_id] = true
 	_pvp_kills[peer_id] = 0
@@ -389,6 +409,37 @@ func _selected_player_name() -> String:
 	if chosen.is_empty():
 		chosen = "玩家"
 	return chosen.left(18)
+
+
+func _on_text_input_focus_entered() -> void:
+	_player.set_controls_enabled(false)
+	_player.clear_input_state()
+
+
+func _on_text_input_focus_exited() -> void:
+	_player.clear_input_state()
+
+
+func _release_text_input() -> void:
+	_address_input.release_focus()
+	_name_input.release_focus()
+	_player.clear_input_state()
+
+
+func _on_avatar_file_selected(path: String) -> void:
+	var image := Image.new()
+	var load_error := image.load(path)
+	if load_error != OK:
+		_avatar_status.text = "头像读取失败"
+		return
+	image.resize(48, 48, Image.INTERPOLATE_LANCZOS)
+	var png_bytes := image.save_png_to_buffer()
+	var encoded := Marshalls.raw_to_base64(png_bytes)
+	if encoded.length() > 24576:
+		_avatar_status.text = "头像数据过大"
+		return
+	_selected_avatar_base64 = encoded
+	_avatar_status.text = "头像已选择"
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -409,6 +460,24 @@ func _sync_player_names(names: Dictionary) -> void:
 		var player := get_node_or_null("Player_%d" % peer_id) as Player
 		if is_instance_valid(player):
 			player.set_player_display_name(str(_player_names[peer_id]))
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _submit_player_avatar(encoded_avatar: String) -> void:
+	if not multiplayer.is_server():
+		return
+	var peer_id := multiplayer.get_remote_sender_id()
+	_player_avatars[peer_id] = encoded_avatar if encoded_avatar.length() <= 24576 else ""
+	_sync_player_avatars.rpc(_player_avatars)
+
+
+@rpc("authority", "call_local", "reliable")
+func _sync_player_avatars(avatars: Dictionary) -> void:
+	_player_avatars = avatars.duplicate()
+	for peer_id in _player_avatars:
+		var player := get_node_or_null("Player_%d" % peer_id) as Player
+		if is_instance_valid(player):
+			player.set_avatar_base64(str(_player_avatars[peer_id]))
 
 
 @rpc("any_peer", "call_remote", "unreliable")
@@ -536,7 +605,7 @@ func _server_apply_pvp_damage(
 		var is_low_attack := attacker_kind == Player.AttackKind.LOW
 		if victim.is_perfect_block_active() and not is_low_attack:
 			attacker.apply_combat_stun.rpc(1.0)
-			_show_combat_message.rpc((attacker.global_position + victim.global_position) * 0.5, "完美格挡！")
+			_show_combat_message.rpc((attacker.global_position + victim.global_position) * 0.5, "格挡！")
 			return
 		if victim.is_network_attack_active() \
 			and attacker.can_clash_with_player(victim) \
@@ -644,6 +713,7 @@ func _remove_network_player(peer_id: int) -> void:
 		player.queue_free()
 	_network_players.erase(peer_id)
 	_player_names.erase(peer_id)
+	_player_avatars.erase(peer_id)
 	_pvp_kills.erase(peer_id)
 	_update_pvp_scoreboard()
 	_network_status.text = "当前玩家：%d / 8" % _network_players.size()

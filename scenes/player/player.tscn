@@ -103,3 +103,12 @@ text = "生命 50/50"
 horizontal_alignment = 1
 theme_override_colors/font_color = Color(0.45, 1, 0.5, 1)
 theme_override_font_sizes/font_size = 15
+
+[node name="Avatar" type="TextureRect" parent="."]
+offset_left = -24.0
+offset_top = -160.0
+offset_right = 24.0
+offset_bottom = -112.0
+expand_mode = 1
+stretch_mode = 5
+mouse_filter = 2

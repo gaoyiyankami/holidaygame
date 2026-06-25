@@ -123,6 +123,7 @@ const MAGIC_BOLT_SCENE := preload("res://scenes/combat/magic_bolt.tscn")
 @onready var _king_label: Label = $KingLabel
 @onready var _player_name_label: Label = $PlayerNameLabel
 @onready var _player_health_label: Label = $PlayerHealthLabel
+@onready var _avatar: TextureRect = $Avatar
 
 
 func _ready() -> void:
@@ -448,10 +449,7 @@ func apply_body_state(state: Dictionary, attacker_peer_id: int = 0) -> void:
 		var part := _parts.get(StringName(id)) as BodyPart
 		var values: Array = state[id]
 		if is_instance_valid(part) and values.size() >= 2:
-			var previous_health := part.health
 			part.apply_authoritative_state(int(values[0]), int(values[1]))
-			if part.health > previous_health:
-				_show_heal_feedback(part)
 	_rebuild_part_effects()
 	_refresh_body_health()
 
@@ -480,6 +478,24 @@ func set_player_display_name(display_name: String) -> void:
 
 func get_player_display_name() -> String:
 	return _player_name_label.text
+
+
+func set_avatar_base64(encoded_avatar: String) -> void:
+	if encoded_avatar.is_empty():
+		_avatar.texture = null
+		return
+	var image_bytes := Marshalls.base64_to_raw(encoded_avatar)
+	var image := Image.new()
+	if image.load_png_from_buffer(image_bytes) != OK:
+		_avatar.texture = null
+		return
+	_avatar.texture = ImageTexture.create_from_image(image)
+
+
+func clear_input_state() -> void:
+	for action in ["move_left", "move_right", "jump", "attack", "dash", "move_down", "spell"]:
+		Input.action_release(action)
+	velocity.x = 0.0
 
 
 @rpc("any_peer", "call_local", "reliable")
@@ -741,6 +757,9 @@ func modify_incoming_damage(amount: int, source_position: Vector2, damage_kind: 
 		return amount
 	if _block_timer <= perfect_block_duration:
 		_stun_attacker(source_position)
+		var main := get_tree().current_scene
+		if is_instance_valid(main) and main.has_method("show_local_combat_message"):
+			main.show_local_combat_message(global_position + Vector2(0, -55), "格挡！")
 		return 0
 	return maxi(1, ceili(amount * (1.0 - block_damage_reduction)))
 
@@ -930,26 +949,8 @@ func heal_next_body_part() -> bool:
 	for id in ["torso", "head", "left_arm", "right_arm", "left_leg", "right_leg"]:
 		var part := _parts.get(id) as BodyPart
 		if is_instance_valid(part) and part.heal_one():
-			_show_heal_feedback(part)
 			return true
 	return false
-
-
-func _show_heal_feedback(part: BodyPart) -> void:
-	var label := Label.new()
-	label.text = "+1 %s" % part.display_name
-	label.position = part.global_position - Vector2(45, 50)
-	label.size = Vector2(90, 35)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 20)
-	label.add_theme_color_override("font_color", Color(0.25, 1.0, 0.45))
-	get_tree().current_scene.add_child(label)
-	var tween := label.create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(label, "position:y", label.position.y - 28.0, 0.7)
-	tween.tween_property(label, "modulate:a", 0.0, 0.7)
-	tween.set_parallel(false)
-	tween.tween_callback(label.queue_free)
 
 
 func get_health_regen_interval() -> float:
