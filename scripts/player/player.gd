@@ -437,7 +437,10 @@ func apply_body_state(state: Dictionary, attacker_peer_id: int = 0) -> void:
 		var part := _parts.get(StringName(id)) as BodyPart
 		var values: Array = state[id]
 		if is_instance_valid(part) and values.size() >= 2:
+			var previous_health := part.health
 			part.apply_authoritative_state(int(values[0]), int(values[1]))
+			if part.health > previous_health:
+				_show_heal_feedback(part)
 	_rebuild_part_effects()
 	_refresh_body_health()
 
@@ -911,16 +914,29 @@ func _update_health_regeneration() -> void:
 
 
 func heal_next_body_part() -> bool:
-	for id in ["left_arm", "right_arm", "left_leg", "right_leg"]:
-		var destroyed_part := _parts.get(id) as BodyPart
-		if is_instance_valid(destroyed_part) and destroyed_part.health <= 0 \
-			and destroyed_part.heal_one():
-			return true
 	for id in ["torso", "head", "left_arm", "right_arm", "left_leg", "right_leg"]:
 		var part := _parts.get(id) as BodyPart
 		if is_instance_valid(part) and part.heal_one():
+			_show_heal_feedback(part)
 			return true
 	return false
+
+
+func _show_heal_feedback(part: BodyPart) -> void:
+	var label := Label.new()
+	label.text = "+1 %s" % part.display_name
+	label.position = part.global_position - Vector2(45, 50)
+	label.size = Vector2(90, 35)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", Color(0.25, 1.0, 0.45))
+	get_tree().current_scene.add_child(label)
+	var tween := label.create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(label, "position:y", label.position.y - 28.0, 0.7)
+	tween.tween_property(label, "modulate:a", 0.0, 0.7)
+	tween.set_parallel(false)
+	tween.tween_callback(label.queue_free)
 
 
 func get_health_regen_interval() -> float:
