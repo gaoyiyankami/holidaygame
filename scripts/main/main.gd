@@ -339,16 +339,26 @@ func _server_apply_pvp_damage(
 		if not attacker.is_network_attack_active():
 			return
 		damage = attacker.get_network_melee_damage()
-		if victim.is_perfect_block_active():
+		var attacker_kind := attacker.get_network_attack_kind()
+		var is_low_attack := attacker_kind == Player.AttackKind.LOW
+		if victim.is_perfect_block_active() and not is_low_attack:
 			attacker.apply_combat_stun.rpc(1.0)
 			_show_combat_message.rpc((attacker.global_position + victim.global_position) * 0.5, "完美格挡！")
 			return
 		if victim.is_network_attack_active() \
+			and attacker.can_clash_with_player(victim) \
 			and attacker.is_facing_position(victim.global_position.x) \
 			and victim.is_facing_position(attacker.global_position.x) \
 			and _can_trigger_clash(attacker_peer_id, victim_peer_id):
-			attacker.apply_clash_recoil.rpc(signf(attacker.global_position.x - victim.global_position.x))
-			victim.apply_clash_recoil.rpc(signf(victim.global_position.x - attacker.global_position.x))
+			var hard_clash := attacker.get_attack_step() == 3 and victim.get_attack_step() == 3
+			attacker.apply_clash_result.rpc(
+				signf(attacker.global_position.x - victim.global_position.x),
+				hard_clash
+			)
+			victim.apply_clash_result.rpc(
+				signf(victim.global_position.x - attacker.global_position.x),
+				hard_clash
+			)
 			_show_combat_message.rpc((attacker.global_position + victim.global_position) * 0.5, "拼刀！")
 			return
 	else:
@@ -359,7 +369,9 @@ func _server_apply_pvp_damage(
 	var allowed_distance := 950.0 if damage_kind == "spell" else 190.0
 	if attacker.global_position.distance_to(victim.global_position) > allowed_distance:
 		return
-	if victim.server_apply_part_damage(part_id, damage, attacker.global_position, attacker_peer_id, damage_kind):
+	var resolved_kind := "low" if damage_kind == "melee" \
+		and attacker.get_network_attack_kind() == Player.AttackKind.LOW else damage_kind
+	if victim.server_apply_part_damage(part_id, damage, attacker.global_position, attacker_peer_id, resolved_kind):
 		_sync_body_state.rpc(victim_peer_id, victim.get_body_state(), attacker_peer_id)
 
 
@@ -475,6 +487,8 @@ func _on_enemy_defeated() -> void:
 
 func _roll_upgrade_choices() -> void:
 	var pool := UPGRADE_POOL.duplicate()
+	if _player.has_double_jump_upgrade():
+		pool = pool.filter(func(choice: Dictionary) -> bool: return choice.id != "double_jump")
 	pool.shuffle()
 	_offered_upgrades.clear()
 	var buttons := [_attack_button, _speed_button, _health_button]

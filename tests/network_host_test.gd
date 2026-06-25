@@ -72,9 +72,37 @@ func _ready() -> void:
 	remote_player.set("_attack_phase", 2)
 	var clash_health_before := remote_torso.health
 	main.request_pvp_damage(1, 2, "torso", 1, "melee")
-	var clash_prevents_damage := remote_torso.health == clash_health_before \
-		and host_player.get_attack_stun_time() >= 0.4 \
+	var light_clash_no_stun := remote_torso.health == clash_health_before \
+		and host_player.get_attack_stun_time() == 0.0 \
+		and remote_player.get_attack_stun_time() == 0.0
+	host_player.call("_start_attack", 3)
+	host_player.call("_begin_active_attack")
+	remote_player.set("_combo_step", 3)
+	remote_player.set("_attack_kind", 0)
+	remote_player.set("_attack_phase", 2)
+	main.set("_last_clash_time", {})
+	main.request_pvp_damage(1, 2, "torso", 1, "melee")
+	var heavy_clash_stuns := host_player.get_attack_stun_time() >= 0.4 \
 		and remote_player.get_attack_stun_time() >= 0.4
+	host_player.set("_attack_stun_timer", 0.0)
+	host_player.set("_movement_stun_timer", 0.0)
+	remote_player.set("_attack_stun_timer", 0.0)
+	remote_player.set("_movement_stun_timer", 0.0)
+	host_player.call("_start_attack", 1, 3)
+	host_player.call("_begin_active_attack")
+	remote_player.call("_start_block")
+	var low_before_guard := remote_torso.health
+	main.request_pvp_damage(1, 2, "torso", 1, "melee")
+	var low_ignores_guard := remote_torso.health < low_before_guard
+	remote_player.call("_stop_block", false)
+	host_player.call("_start_attack", 1, 3)
+	host_player.call("_begin_active_attack")
+	remote_player.set("_attack_kind", 3)
+	remote_player.set("_attack_phase", 2)
+	main.set("_last_clash_time", {})
+	var low_clash_before := remote_torso.health
+	main.request_pvp_damage(1, 2, "torso", 1, "melee")
+	var low_only_clashes_low := remote_torso.health == low_clash_before
 	remote_player.set("_invincibility_timer", 0.0)
 	main.request_pvp_damage(1, 2, "left_leg", 99, "melee")
 	var invalid_damage_rejected := remote_leg.health == leg_before - 1
@@ -93,7 +121,7 @@ func _ready() -> void:
 	main.call("_on_pvp_player_defeated", 2, 1)
 	var kill_grants_upgrade := main.get_pvp_kills(1) == 1 \
 		and host_player.attack_damage > attack_before
-	var death_removes_upgrades := remote_player.attack_damage == 4
+	var death_removes_upgrades := remote_player.attack_damage == 3
 	main.set("_pvp_kills", {1: 7, 2: 0})
 	main.call("_on_pvp_player_defeated", 2, 1)
 	var eight_kills_wins := main.is_pvp_round_ending() \
@@ -117,7 +145,8 @@ func _ready() -> void:
 		red_dot,
 		guarding_blocks_magic,
 		perfect_block_combat_lock,
-		clash_prevents_damage,
+		light_clash_no_stun and heavy_clash_stuns \
+			and low_ignores_guard and low_only_clashes_low,
 		invalid_damage_rejected,
 		destroyed_limb_synced,
 		attack_effect_synced,
@@ -131,6 +160,8 @@ func _ready() -> void:
 		and map_selector_ready and arena_is_large and traps_removed \
 		and body_health_at_top and world_visible_after_start \
 		and pvp_damage_synced and green_dot and red_dot and attack_effect_synced \
-		and guarding_blocks_magic and perfect_block_combat_lock and clash_prevents_damage \
+		and guarding_blocks_magic and perfect_block_combat_lock \
+		and light_clash_no_stun and heavy_clash_stuns \
+		and low_ignores_guard and low_only_clashes_low \
 		and invalid_damage_rejected and destroyed_limb_synced \
 		and kill_grants_upgrade and death_removes_upgrades and eight_kills_wins else 1)

@@ -35,9 +35,9 @@ signal pvp_defeated(victim_peer_id: int, killer_peer_id: int)
 @export var jump_cut_multiplier: float = 0.45
 
 @export_category("Combat")
-@export var attack_damage: int = 4
+@export var attack_damage: int = 3
 @export var combo_reset_time: float = 0.5
-@export var spell_damage: int = 5
+@export var spell_damage: int = 2
 
 @export_category("Magic")
 @export var max_mana: int = 100
@@ -364,18 +364,22 @@ func _apply_damage_to_part(part: BodyPart, damage: int) -> bool:
 	if part.actor is Player and multiplayer.has_multiplayer_peer():
 		request_network_damage(part.actor as Player, part.part_id, damage, "melee")
 		return true
-	if part.actor.has_method("is_melee_attack_active") and part.actor.is_melee_attack_active():
-		apply_clash_recoil(signf(global_position.x - part.actor.global_position.x))
-		if part.actor.has_method("apply_combat_stun"):
-			part.actor.apply_combat_stun(0.45)
-			var opposing_body := part.actor as CharacterBody2D
-			if is_instance_valid(opposing_body):
-				opposing_body.velocity.x = signf(opposing_body.global_position.x - global_position.x) * 260.0
+	if part.actor.has_method("is_melee_attack_active") and part.actor.is_melee_attack_active() \
+		and _can_clash_with(part.actor):
+		var hard_clash: bool = _combo_step == 3 and part.actor.has_method("get_attack_step") \
+			and part.actor.get_attack_step() == 3
+		apply_clash_result(signf(global_position.x - part.actor.global_position.x), hard_clash)
+		if part.actor.has_method("apply_clash_result"):
+			part.actor.apply_clash_result(
+				signf(part.actor.global_position.x - global_position.x),
+				hard_clash
+			)
 		var main := get_tree().current_scene
 		if is_instance_valid(main) and main.has_method("show_local_combat_message"):
 			main.show_local_combat_message((global_position + part.actor.global_position) * 0.5, "拼刀！")
 		return true
-	return part.receive_damage(damage, global_position)
+	var damage_kind := "low" if _attack_kind == AttackKind.LOW else "melee"
+	return part.receive_damage(damage, global_position, damage_kind)
 
 
 func request_network_damage(target: Player, part_id: StringName, damage: int, damage_kind: String) -> void:
@@ -445,12 +449,15 @@ func set_pvp_enabled(enabled: bool) -> void:
 @rpc("any_peer", "call_local", "reliable")
 func apply_pvp_upgrade(upgrade_index: int) -> void:
 	var upgrades := ["attack", "attack_speed", "move_speed", "double_jump", "attack_range", "part_health", "magic_damage", "max_mana", "mana_regen", "dash_cooldown"]
-	apply_upgrade(upgrades[upgrade_index % upgrades.size()])
+	var selected: String = upgrades[upgrade_index % upgrades.size()]
+	if selected == "double_jump" and has_double_jump_upgrade():
+		selected = upgrades[(upgrade_index + 1) % upgrades.size()]
+	apply_upgrade(selected)
 
 
 @rpc("any_peer", "call_local", "reliable")
 func reset_for_pvp(spawn_position: Vector2) -> void:
-	attack_damage = 4
+	attack_damage = 3
 	move_speed = 300.0
 	_attack_speed_multiplier = 1.0
 	_arm_attack_multiplier = 1.0
@@ -460,7 +467,7 @@ func reset_for_pvp(spawn_position: Vector2) -> void:
 	_dash_multiplier = 1.0
 	_extra_jumps = 0
 	_extra_jumps_left = 0
-	spell_damage = 5
+	spell_damage = 2
 	max_mana = 100
 	mana_regen_per_second = 7.0
 	dash_cooldown = 0.65
@@ -533,6 +540,27 @@ func is_facing_position(target_x: float) -> bool:
 
 func get_network_attack_kind() -> int:
 	return int(_attack_kind)
+
+
+func get_attack_step() -> int:
+	return _combo_step
+
+
+func has_double_jump_upgrade() -> bool:
+	return _extra_jumps > 0
+
+
+func can_clash_with_player(other: Player) -> bool:
+	return _can_clash_with(other)
+
+
+func _can_clash_with(other: Node) -> bool:
+	if not other.has_method("get_network_attack_kind"):
+		return false
+	var other_kind := int(other.get_network_attack_kind())
+	if _attack_kind == AttackKind.LOW or other_kind == AttackKind.LOW:
+		return _attack_kind == AttackKind.LOW and other_kind == AttackKind.LOW
+	return _attack_kind == AttackKind.NORMAL and other_kind == AttackKind.NORMAL
 
 
 func get_network_melee_damage() -> int:
@@ -661,6 +689,8 @@ func modify_incoming_damage(amount: int, source_position: Vector2, damage_kind: 
 		return amount
 	if damage_kind == "spell":
 		return 0
+	if damage_kind == "low":
+		return amount
 	if _block_timer <= perfect_block_duration:
 		_stun_attacker(source_position)
 		return 0
@@ -752,6 +782,18 @@ func apply_combat_stun(duration: float) -> void:
 func apply_clash_recoil(direction: float) -> void:
 	apply_combat_stun(0.45)
 	velocity.x = direction * 260.0
+
+
+@rpc("any_peer", "call_local", "reliable")
+func apply_clash_result(direction: float, hard_clash: bool) -> void:
+	if hard_clash:
+		apply_combat_stun(0.45)
+	else:
+		_attack_phase = AttackPhase.NONE
+		_attack_timer = 0.0
+		_combo_queued = false
+		_slash_visual.visible = false
+	velocity.x = direction * 220.0
 
 
 func apply_movement_stun(duration: float) -> void:
@@ -980,12 +1022,12 @@ func get_attack_damage_multiplier() -> float:
 
 
 func _create_body_parts() -> void:
-	_add_body_part("head", "头部", 7, true, Vector2(22, 18), Vector2(0, -34), Color(0.45, 0.82, 1.0), 16)
-	_add_body_part("torso", "身体", 11, true, Vector2(28, 32), Vector2(0, -7), Color(0.18, 0.62, 0.96), 16)
-	_add_body_part("left_arm", "左臂", 6, false, Vector2(10, 28), Vector2(-21, -7), Color(0.28, 0.72, 1.0), 16)
-	_add_body_part("right_arm", "右臂", 6, false, Vector2(10, 28), Vector2(21, -7), Color(0.28, 0.72, 1.0), 16)
-	_add_body_part("left_leg", "左腿", 6, false, Vector2(11, 30), Vector2(-9, 24), Color(0.12, 0.45, 0.82), 16)
-	_add_body_part("right_leg", "右腿", 6, false, Vector2(11, 30), Vector2(9, 24), Color(0.12, 0.45, 0.82), 16)
+	_add_body_part("head", "头部", 8, true, Vector2(22, 18), Vector2(0, -34), Color(0.45, 0.82, 1.0), 16)
+	_add_body_part("torso", "身体", 14, true, Vector2(28, 32), Vector2(0, -7), Color(0.18, 0.62, 0.96), 16)
+	_add_body_part("left_arm", "左臂", 7, false, Vector2(10, 28), Vector2(-21, -7), Color(0.28, 0.72, 1.0), 16)
+	_add_body_part("right_arm", "右臂", 7, false, Vector2(10, 28), Vector2(21, -7), Color(0.28, 0.72, 1.0), 16)
+	_add_body_part("left_leg", "左腿", 7, false, Vector2(11, 30), Vector2(-9, 24), Color(0.12, 0.45, 0.82), 16)
+	_add_body_part("right_leg", "右腿", 7, false, Vector2(11, 30), Vector2(9, 24), Color(0.12, 0.45, 0.82), 16)
 
 
 func _add_body_part(

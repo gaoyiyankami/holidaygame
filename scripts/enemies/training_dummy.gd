@@ -213,12 +213,29 @@ func apply_combat_stun(duration: float) -> void:
 	_change_state(State.RECOVERY)
 
 
+func apply_clash_result(direction: float, hard_clash: bool) -> void:
+	_attack_has_hit = true
+	if hard_clash:
+		apply_combat_stun(0.45)
+	else:
+		_change_state(State.RECOVERY)
+	velocity.x = direction * 220.0
+
+
 func get_attack_stun_time() -> float:
 	return _attack_stun_timer
 
 
 func is_melee_attack_active() -> bool:
 	return _state == State.ATTACK and _attack_stun_timer <= 0.0
+
+
+func get_network_attack_kind() -> int:
+	return Player.AttackKind.NORMAL
+
+
+func get_attack_step() -> int:
+	return 1
 
 
 func get_movement_stun_time() -> float:

@@ -8,8 +8,8 @@ func _ready() -> void:
 
 	var player := $Main/Player as Player
 	var enemy := $Main/TrainingDummy as TrainingDummy
-	var base_stats_ready := player.get_health() == 42 and player.max_health == 42 \
-		and player.attack_damage == 4
+	var base_stats_ready := player.get_health() == 50 and player.max_health == 50 \
+		and player.attack_damage == 3 and player.get_spell_damage() == 2
 	var enemy_start_x := enemy.global_position.x
 
 	await get_tree().create_timer(1.0).timeout
@@ -23,13 +23,16 @@ func _ready() -> void:
 	var upgrade_panel := $Main/UI/UpgradePanel as PanelContainer
 	var upgrade_opened := upgrade_panel.visible
 	var random_three_choices: bool = $Main.get("_offered_upgrades").size() == 3
+	player.apply_upgrade("double_jump")
+	$Main.call("_roll_upgrade_choices")
+	var double_jump_only_once: bool = not "double_jump" in $Main.get("_offered_upgrades")
 	var attack_button := $Main/UI/UpgradePanel/Margin/VBox/Choices/AttackButton as Button
 	$Main.set("_offered_upgrades", ["attack", "attack_speed", "part_health"])
 	attack_button.text = "攻击力\n\n+1 伤害"
 	attack_button.pressed.emit()
 	await get_tree().create_timer(0.8).timeout
 
-	var attack_upgraded := player.attack_damage == 5
+	var attack_upgraded := player.attack_damage == 4
 	var next_enemy: TrainingDummy
 	for child in $Main.get_children():
 		if child is TrainingDummy:
@@ -37,17 +40,19 @@ func _ready() -> void:
 			break
 	var next_wave_spawned := is_instance_valid(next_enemy)
 
-	print("Combat smoke test: base=%s moved=%s attacked=%s upgrade=%s choices=%s attack_upgraded=%s next_wave=%s" % [
+	print("Combat smoke test: base=%s moved=%s attacked=%s upgrade=%s choices=%s double_once=%s attack_upgraded=%s next_wave=%s" % [
 		base_stats_ready,
 		enemy_moved,
 		player_was_attacked,
 		upgrade_opened,
 		random_three_choices,
+		double_jump_only_once,
 		attack_upgraded,
 		next_wave_spawned,
 	])
 
 	var passed := base_stats_ready and enemy_moved and player_was_attacked \
-		and upgrade_opened and random_three_choices and attack_upgraded \
+		and upgrade_opened and random_three_choices and double_jump_only_once \
+		and attack_upgraded \
 		and next_wave_spawned
 	get_tree().quit(0 if passed else 1)
