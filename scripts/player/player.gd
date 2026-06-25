@@ -110,6 +110,7 @@ var _hit_targets: Dictionary = {}
 var _parts: Dictionary = {}
 var _sword_tween: Tween
 var _health_regen_timer: Timer
+var _applied_upgrade_count: int = 0
 
 const MAGIC_BOLT_SCENE := preload("res://scenes/combat/magic_bolt.tscn")
 
@@ -552,6 +553,7 @@ func reset_for_pvp(spawn_position: Vector2) -> void:
 	mana_regen_per_second = 7.0
 	health_regen_interval_msec = 6000
 	_rapid_regeneration = false
+	_applied_upgrade_count = 0
 	if is_instance_valid(_health_regen_timer):
 		_health_regen_timer.wait_time = 6.0
 		_health_regen_timer.stop()
@@ -988,6 +990,10 @@ func on_body_part_damaged(part: BodyPart, _amount: int, source_position: Vector2
 		_die()
 
 
+func apply_network_knockback(knockback_velocity: Vector2) -> void:
+	velocity = knockback_velocity
+
+
 func get_health() -> int:
 	return _health
 
@@ -1182,11 +1188,16 @@ func apply_upgrade(upgrade_id: String) -> void:
 				_health_regen_timer.wait_time = 3.0
 				if _health < max_health:
 					_health_regen_timer.start()
+	_applied_upgrade_count += 1
 	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 
 func get_attack_speed_bonus() -> int:
 	return roundi((_attack_speed_multiplier - 1.0) * 100.0)
+
+
+func get_applied_upgrade_count() -> int:
+	return _applied_upgrade_count
 
 
 func get_movement_multiplier() -> float:

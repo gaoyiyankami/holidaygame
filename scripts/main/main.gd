@@ -41,6 +41,8 @@ var _last_melee_swing: Dictionary = {}
 var _last_regeneration_time: Dictionary = {}
 var _player_names: Dictionary = {}
 var _player_avatars: Dictionary = {}
+var _pending_pvp_upgrade_offers: Dictionary = {}
+var _pvp_upgrade_selection_active: bool = false
 var _selected_avatar_base64: String = ""
 var _ping_timer: float = 0.0
 const UPGRADE_POOL := [
@@ -746,8 +748,24 @@ func _server_apply_pvp_damage(
 		return
 	var resolved_kind := "low" if damage_kind == "melee" \
 		and attacker.get_network_attack_kind() == Player.AttackKind.LOW else damage_kind
+	var health_before := victim.get_health()
 	if victim.server_apply_part_damage(part_id, damage, attacker.global_position, attacker_peer_id, resolved_kind):
 		_sync_body_state.rpc(victim_peer_id, victim.get_body_state(), attacker_peer_id)
+		if victim.get_health() < health_before:
+			var knockback_direction := signf(victim.global_position.x - attacker.global_position.x)
+			if is_zero_approx(knockback_direction):
+				knockback_direction = 1.0
+			_apply_pvp_knockback.rpc(
+				victim_peer_id,
+				Vector2(knockback_direction * victim.knockback_speed, -230.0)
+			)
+
+
+@rpc("authority", "call_local", "reliable")
+func _apply_pvp_knockback(peer_id: int, knockback_velocity: Vector2) -> void:
+	var player := get_node_or_null("Player_%d" % peer_id) as Player
+	if is_instance_valid(player):
+		player.apply_network_knockback(knockback_velocity)
 
 
 func _can_trigger_clash(first_peer_id: int, second_peer_id: int) -> bool:
@@ -829,6 +847,7 @@ func _remove_network_player(peer_id: int) -> void:
 	_player_avatars.erase(peer_id)
 	_pvp_kills.erase(peer_id)
 	_last_melee_swing.erase(peer_id)
+	_pending_pvp_upgrade_offers.erase(peer_id)
 	_update_pvp_scoreboard()
 	_network_status.text = "当前玩家：%d / 8" % _network_players.size()
 
@@ -881,6 +900,10 @@ func _choose_upgrade(index: int) -> void:
 	if index < 0 or index >= _offered_upgrades.size():
 		return
 	var upgrade_id := _offered_upgrades[index]
+	if _pvp_upgrade_selection_active:
+		_submit_pvp_upgrade_choice(upgrade_id)
+		_close_pvp_upgrade_selection()
+		return
 	var description := ""
 	for choice in UPGRADE_POOL:
 		if choice.id == upgrade_id:
@@ -902,6 +925,38 @@ func _finish_upgrade(message: String) -> void:
 	_status_label.visible = false
 	_spawn_next_enemy()
 	_player.set_controls_enabled(true)
+
+
+func _submit_pvp_upgrade_choice(upgrade_id: String) -> void:
+	var peer_id := multiplayer.get_unique_id()
+	if multiplayer.is_server():
+		_server_choose_pvp_upgrade(peer_id, upgrade_id)
+	else:
+		_request_pvp_upgrade_choice.rpc_id(1, upgrade_id)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_pvp_upgrade_choice(upgrade_id: String) -> void:
+	if multiplayer.is_server():
+		_server_choose_pvp_upgrade(multiplayer.get_remote_sender_id(), upgrade_id)
+
+
+func _server_choose_pvp_upgrade(peer_id: int, upgrade_id: String) -> void:
+	var offered: Array = _pending_pvp_upgrade_offers.get(peer_id, [])
+	if upgrade_id not in offered:
+		return
+	_pending_pvp_upgrade_offers.erase(peer_id)
+	_sync_pvp_upgrade.rpc(peer_id, upgrade_id)
+
+
+func _close_pvp_upgrade_selection() -> void:
+	_pvp_upgrade_selection_active = false
+	_upgrade_open = false
+	_upgrade_panel.visible = false
+	_status_label.visible = false
+	_offered_upgrades.clear()
+	if is_instance_valid(_player):
+		_player.set_controls_enabled(true)
 
 
 func _spawn_next_enemy() -> void:
@@ -946,20 +1001,62 @@ func _on_player_died() -> void:
 func _on_pvp_player_defeated(victim_peer_id: int, killer_peer_id: int) -> void:
 	if not _pvp_mode or not multiplayer.is_server() or _pvp_round_ending:
 		return
+	_pending_pvp_upgrade_offers.erase(victim_peer_id)
 	if killer_peer_id > 0 and killer_peer_id != victim_peer_id and _network_players.has(killer_peer_id):
 		_pvp_kills[killer_peer_id] = int(_pvp_kills.get(killer_peer_id, 0)) + 1
-		_sync_pvp_upgrade.rpc(killer_peer_id, int(_pvp_kills[killer_peer_id]) - 1)
+		if int(_pvp_kills[killer_peer_id]) < PVP_KILLS_TO_WIN:
+			_offer_pvp_upgrade_to_player(killer_peer_id)
 	_sync_pvp_scores.rpc(_pvp_kills)
 	_respawn_pvp_player.rpc(victim_peer_id, _spawn_for_peer(victim_peer_id))
 	if int(_pvp_kills.get(killer_peer_id, 0)) >= PVP_KILLS_TO_WIN:
 		_finish_pvp_round(killer_peer_id)
 
 
+func _offer_pvp_upgrade_to_player(peer_id: int) -> void:
+	var player := get_node_or_null("Player_%d" % peer_id) as Player
+	if not is_instance_valid(player):
+		return
+	var pool := UPGRADE_POOL.duplicate()
+	if player.has_double_jump_upgrade():
+		pool = pool.filter(func(choice: Dictionary) -> bool: return choice.id != "double_jump")
+	if player.has_rapid_regeneration():
+		pool = pool.filter(func(choice: Dictionary) -> bool: return choice.id != "rapid_regeneration")
+	pool.shuffle()
+	var choices: Array[String] = []
+	for index in mini(3, pool.size()):
+		choices.append(str(pool[index].id))
+	_pending_pvp_upgrade_offers[peer_id] = choices.duplicate()
+	if peer_id == multiplayer.get_unique_id():
+		_show_pvp_upgrade_offer(choices)
+	elif peer_id in multiplayer.get_peers():
+		_show_pvp_upgrade_offer.rpc_id(peer_id, choices)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _show_pvp_upgrade_offer(choices: Array[String]) -> void:
+	if choices.size() != 3:
+		return
+	_pvp_upgrade_selection_active = true
+	_upgrade_open = true
+	_offered_upgrades = choices.duplicate()
+	_player.set_controls_enabled(false)
+	_status_label.text = "击杀奖励：选择一项强化"
+	_status_label.visible = true
+	_upgrade_panel.visible = true
+	var buttons := [_attack_button, _speed_button, _health_button]
+	for index in 3:
+		for choice in UPGRADE_POOL:
+			if choice.id == choices[index]:
+				buttons[index].text = "%s\n\n%s" % [choice.title, choice.detail]
+				break
+	_attack_button.grab_focus()
+
+
 @rpc("authority", "call_local", "reliable")
-func _sync_pvp_upgrade(peer_id: int, upgrade_index: int) -> void:
+func _sync_pvp_upgrade(peer_id: int, upgrade_id: String) -> void:
 	var player := get_node_or_null("Player_%d" % peer_id) as Player
 	if is_instance_valid(player):
-		player.apply_pvp_upgrade(upgrade_index)
+		player.apply_upgrade(upgrade_id)
 
 
 func _finish_pvp_round(winner_peer_id: int) -> void:
@@ -995,6 +1092,10 @@ func _show_pvp_winner(winner_peer_id: int) -> void:
 
 @rpc("authority", "call_local", "reliable")
 func _reset_pvp_round() -> void:
+	_pvp_upgrade_selection_active = false
+	_upgrade_open = false
+	_upgrade_panel.visible = false
+	_offered_upgrades.clear()
 	for node in get_tree().get_nodes_in_group("player"):
 		var player := node as Player
 		player.set_king(false)

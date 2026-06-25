@@ -21,17 +21,24 @@ func _ready() -> void:
 	victim_state["torso"] = [1, 14]
 	victim.apply_body_state(victim_state, 0)
 	victim.set("_invincibility_timer", 0.0)
-	var attack_before := attacker.attack_damage
+	var upgrades_before := attacker.get_applied_upgrade_count()
 	main.call("_server_resolve_pvp_melee_swing", 2, 1, 0, 1, 1.0)
 	await get_tree().process_frame
 
 	var client_hit_client: bool = main.get_pvp_kills(2) == 1
-	var kill_granted_upgrade: bool = attacker.attack_damage > attack_before
+	var offered: Array = main.get("_pending_pvp_upgrade_offers").get(2, [])
+	var three_upgrade_choices: bool = offered.size() == 3
+	if three_upgrade_choices:
+		main.call("_server_choose_pvp_upgrade", 2, offered[0])
+	await get_tree().process_frame
+	var kill_granted_upgrade: bool = attacker.get_applied_upgrade_count() > upgrades_before
 	var victim_respawned: bool = victim.get_health() == victim.max_health
-	print("PvP client combat test: hit=%s upgrade=%s respawn=%s" % [
+	print("PvP client combat test: hit=%s choices=%s upgrade=%s respawn=%s" % [
 		client_hit_client,
+		three_upgrade_choices,
 		kill_granted_upgrade,
 		victim_respawned,
 	])
 	multiplayer.multiplayer_peer = null
-	get_tree().quit(0 if client_hit_client and kill_granted_upgrade and victim_respawned else 1)
+	get_tree().quit(0 if client_hit_client and three_upgrade_choices \
+		and kill_granted_upgrade and victim_respawned else 1)
