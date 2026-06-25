@@ -35,8 +35,9 @@ signal pvp_defeated(victim_peer_id: int, killer_peer_id: int)
 @export var jump_cut_multiplier: float = 0.45
 
 @export_category("Combat")
-@export var attack_damage: int = 1
+@export var attack_damage: int = 3
 @export var combo_reset_time: float = 0.5
+@export var spell_damage: int = 2
 
 @export_category("Magic")
 @export var max_mana: int = 100
@@ -66,6 +67,8 @@ var _mana: int
 var _mana_regen_buffer: float = 0.0
 var _coyote_timer: float = 0.0
 var _jump_buffer_timer: float = 0.0
+var _extra_jumps: int = 0
+var _extra_jumps_left: int = 0
 var _attack_timer: float = 0.0
 var _attack_phase: AttackPhase = AttackPhase.NONE
 var _attack_kind: AttackKind = AttackKind.NORMAL
@@ -184,6 +187,7 @@ func _update_timers(delta: float) -> void:
 
 	if is_on_floor():
 		_coyote_timer = coyote_time
+		_extra_jumps_left = _extra_jumps
 	else:
 		_coyote_timer = maxf(_coyote_timer - delta, 0.0)
 
@@ -219,6 +223,10 @@ func _handle_jump() -> void:
 		velocity.y = jump_velocity * _jump_multiplier
 		_jump_buffer_timer = 0.0
 		_coyote_timer = 0.0
+	elif _jump_buffer_timer > 0.0 and _extra_jumps_left > 0:
+		velocity.y = jump_velocity * _jump_multiplier
+		_jump_buffer_timer = 0.0
+		_extra_jumps_left -= 1
 
 	if Input.is_action_just_released("jump") and velocity.y < 0.0:
 		velocity.y *= jump_cut_multiplier
@@ -420,24 +428,27 @@ func set_pvp_enabled(enabled: bool) -> void:
 
 @rpc("any_peer", "call_local", "reliable")
 func apply_pvp_upgrade(upgrade_index: int) -> void:
-	match upgrade_index % 3:
-		0:
-			apply_attack_upgrade()
-		1:
-			apply_attack_speed_upgrade()
-		2:
-			apply_max_health_upgrade()
+	var upgrades := ["attack", "attack_speed", "move_speed", "double_jump", "attack_range", "part_health", "magic_damage", "max_mana", "mana_regen", "dash_cooldown"]
+	apply_upgrade(upgrades[upgrade_index % upgrades.size()])
 
 
 @rpc("any_peer", "call_local", "reliable")
 func reset_for_pvp(spawn_position: Vector2) -> void:
-	attack_damage = 1
+	attack_damage = 3
+	move_speed = 320.0
 	_attack_speed_multiplier = 1.0
 	_arm_attack_multiplier = 1.0
 	_attack_damage_multiplier = 1.0
 	_movement_multiplier = 1.0
 	_jump_multiplier = 1.0
 	_dash_multiplier = 1.0
+	_extra_jumps = 0
+	_extra_jumps_left = 0
+	spell_damage = 2
+	max_mana = 100
+	mana_regen_per_second = 8.0
+	dash_cooldown = 0.65
+	_attack_area.scale.x = 1.0
 	_can_block = true
 	_block_cooldown_timer = 0.0
 	_stop_block(false)
@@ -509,6 +520,10 @@ func get_network_melee_damage() -> int:
 		AttackKind.LOW:
 			base_damage = roundi(base_damage * 1.2)
 	return maxi(1, roundi(base_damage * _attack_damage_multiplier))
+
+
+func get_spell_damage() -> int:
+	return spell_damage
 
 
 func _get_windup_duration(step: int) -> float:
@@ -773,6 +788,7 @@ func cast_spell() -> bool:
 	mana_changed.emit(_mana, max_mana)
 	var bolt := MAGIC_BOLT_SCENE.instantiate() as MagicBolt
 	bolt.caster = self
+	bolt.damage = spell_damage
 	bolt.direction = signf(_visual.scale.x)
 	if is_zero_approx(bolt.direction):
 		bolt.direction = 1.0
@@ -823,6 +839,7 @@ func _sync_combat_effect(action: String, step: int, kind: int, facing: float) ->
 		"spell":
 			var bolt := MAGIC_BOLT_SCENE.instantiate() as MagicBolt
 			bolt.caster = self
+			bolt.damage = spell_damage
 			bolt.direction = facing
 			if not multiplayer.is_server():
 				bolt.collision_mask = 0
@@ -854,15 +871,42 @@ func apply_attack_upgrade() -> void:
 
 
 func apply_attack_speed_upgrade() -> void:
-	_attack_speed_multiplier += 0.15
+	_attack_speed_multiplier += 0.20
 	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 
 func apply_max_health_upgrade() -> void:
-	var torso: BodyPart = _parts.get("torso")
-	if is_instance_valid(torso):
-		torso.increase_max_health(2, 2)
+	for part in _parts.values():
+		(part as BodyPart).increase_max_health(2, 2)
 	_refresh_body_health()
+
+
+func apply_upgrade(upgrade_id: String) -> void:
+	match upgrade_id:
+		"attack":
+			apply_attack_upgrade()
+		"attack_speed":
+			apply_attack_speed_upgrade()
+		"move_speed":
+			move_speed *= 1.3
+		"double_jump":
+			_extra_jumps = maxi(_extra_jumps, 1)
+			_extra_jumps_left = _extra_jumps
+		"attack_range":
+			_attack_area.scale.x *= 1.2
+		"part_health":
+			apply_max_health_upgrade()
+		"magic_damage":
+			spell_damage += 1
+		"max_mana":
+			max_mana += 20
+			_mana = mini(_mana + 20, max_mana)
+			mana_changed.emit(_mana, max_mana)
+		"mana_regen":
+			mana_regen_per_second *= 1.25
+		"dash_cooldown":
+			dash_cooldown = maxf(0.25, dash_cooldown * 0.85)
+	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 
 func get_attack_speed_bonus() -> int:
@@ -878,12 +922,12 @@ func get_attack_damage_multiplier() -> float:
 
 
 func _create_body_parts() -> void:
-	_add_body_part("head", "头部", 5, true, Vector2(22, 18), Vector2(0, -34), Color(0.45, 0.82, 1.0), 16)
-	_add_body_part("torso", "身体", 8, true, Vector2(28, 32), Vector2(0, -7), Color(0.18, 0.62, 0.96), 16)
-	_add_body_part("left_arm", "左臂", 4, false, Vector2(10, 28), Vector2(-21, -7), Color(0.28, 0.72, 1.0), 16)
-	_add_body_part("right_arm", "右臂", 4, false, Vector2(10, 28), Vector2(21, -7), Color(0.28, 0.72, 1.0), 16)
-	_add_body_part("left_leg", "左腿", 5, false, Vector2(11, 30), Vector2(-9, 24), Color(0.12, 0.45, 0.82), 16)
-	_add_body_part("right_leg", "右腿", 5, false, Vector2(11, 30), Vector2(9, 24), Color(0.12, 0.45, 0.82), 16)
+	_add_body_part("head", "头部", 8, true, Vector2(22, 18), Vector2(0, -34), Color(0.45, 0.82, 1.0), 16)
+	_add_body_part("torso", "身体", 14, true, Vector2(28, 32), Vector2(0, -7), Color(0.18, 0.62, 0.96), 16)
+	_add_body_part("left_arm", "左臂", 7, false, Vector2(10, 28), Vector2(-21, -7), Color(0.28, 0.72, 1.0), 16)
+	_add_body_part("right_arm", "右臂", 7, false, Vector2(10, 28), Vector2(21, -7), Color(0.28, 0.72, 1.0), 16)
+	_add_body_part("left_leg", "左腿", 7, false, Vector2(11, 30), Vector2(-9, 24), Color(0.12, 0.45, 0.82), 16)
+	_add_body_part("right_leg", "右腿", 7, false, Vector2(11, 30), Vector2(9, 24), Color(0.12, 0.45, 0.82), 16)
 
 
 func _add_body_part(

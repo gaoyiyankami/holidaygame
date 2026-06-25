@@ -35,6 +35,19 @@ var _pvp_mode: bool = false
 var _pvp_kills: Dictionary = {}
 var _pvp_round_ending: bool = false
 var _multiplayer_map: String = MAP_ARENA
+var _offered_upgrades: Array[String] = []
+const UPGRADE_POOL := [
+	{"id": "attack", "title": "攻击力", "detail": "+1 伤害"},
+	{"id": "attack_speed", "title": "攻击速度", "detail": "+20% 攻速"},
+	{"id": "move_speed", "title": "移动速度", "detail": "+30% 移速"},
+	{"id": "double_jump", "title": "二段跳", "detail": "获得空中追加跳跃"},
+	{"id": "attack_range", "title": "攻击范围", "detail": "+20% 剑击范围"},
+	{"id": "part_health", "title": "肢体强化", "detail": "每个部位生命 +2"},
+	{"id": "magic_damage", "title": "魔法强化", "detail": "法术伤害 +1"},
+	{"id": "max_mana", "title": "魔力扩容", "detail": "魔法上限 +20"},
+	{"id": "mana_regen", "title": "魔力循环", "detail": "回魔速度 +25%"},
+	{"id": "dash_cooldown", "title": "疾风步", "detail": "冲刺冷却 -15%"},
+]
 
 @onready var _player: Player = $Player
 @onready var _enemy_spawn: Marker2D = $EnemySpawn
@@ -69,9 +82,9 @@ func _ready() -> void:
 	_player.stats_changed.connect(_on_player_stats_changed)
 	_player.died.connect(_on_player_died)
 	_player.pvp_defeated.connect(_on_pvp_player_defeated)
-	_attack_button.pressed.connect(_choose_attack_upgrade)
-	_speed_button.pressed.connect(_choose_speed_upgrade)
-	_health_button.pressed.connect(_choose_health_upgrade)
+	_attack_button.pressed.connect(_choose_upgrade.bind(0))
+	_speed_button.pressed.connect(_choose_upgrade.bind(1))
+	_health_button.pressed.connect(_choose_upgrade.bind(2))
 	_single_button.pressed.connect(_start_single_player)
 	_multi_button.pressed.connect(_show_multiplayer_menu)
 	_back_button.pressed.connect(_show_start_menu)
@@ -326,7 +339,7 @@ func _server_apply_pvp_damage(
 			return
 		damage = attacker.get_network_melee_damage()
 	else:
-		damage = 2
+		damage = attacker.get_spell_damage()
 	var allowed_distance := 950.0 if damage_kind == "spell" else 190.0
 	if attacker.global_position.distance_to(victim.global_position) > allowed_distance:
 		return
@@ -407,22 +420,32 @@ func _on_enemy_defeated() -> void:
 	_status_label.text = "第 %d 波完成！选择一项强化" % _wave
 	_status_label.visible = true
 	_upgrade_panel.visible = true
+	_roll_upgrade_choices()
 	_attack_button.grab_focus()
 
 
-func _choose_attack_upgrade() -> void:
-	_player.apply_attack_upgrade()
-	_finish_upgrade("攻击力 +1")
+func _roll_upgrade_choices() -> void:
+	var pool := UPGRADE_POOL.duplicate()
+	pool.shuffle()
+	_offered_upgrades.clear()
+	var buttons := [_attack_button, _speed_button, _health_button]
+	for index in 3:
+		var choice: Dictionary = pool[index]
+		_offered_upgrades.append(choice.id)
+		buttons[index].text = "%s\n\n%s" % [choice.title, choice.detail]
 
 
-func _choose_speed_upgrade() -> void:
-	_player.apply_attack_speed_upgrade()
-	_finish_upgrade("攻击速度 +15%")
-
-
-func _choose_health_upgrade() -> void:
-	_player.apply_max_health_upgrade()
-	_finish_upgrade("生命上限 +2，回复 2 点")
+func _choose_upgrade(index: int) -> void:
+	if index < 0 or index >= _offered_upgrades.size():
+		return
+	var upgrade_id := _offered_upgrades[index]
+	var description := ""
+	for choice in UPGRADE_POOL:
+		if choice.id == upgrade_id:
+			description = "%s：%s" % [choice.title, choice.detail]
+			break
+	_player.apply_upgrade(upgrade_id)
+	_finish_upgrade(description)
 
 
 func _finish_upgrade(message: String) -> void:

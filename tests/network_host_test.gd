@@ -67,7 +67,7 @@ func _ready() -> void:
 	main.call("_on_pvp_player_defeated", 2, 1)
 	var kill_grants_upgrade := main.get_pvp_kills(1) == 1 \
 		and host_player.attack_damage > attack_before
-	var death_removes_upgrades := remote_player.attack_damage == 1
+	var death_removes_upgrades := remote_player.attack_damage == 3
 	main.set("_pvp_kills", {1: 7, 2: 0})
 	main.call("_on_pvp_player_defeated", 2, 1)
 	var eight_kills_wins := main.is_pvp_round_ending() \

@@ -295,7 +295,7 @@ offset_bottom = 226.0
 theme_override_styles/panel = SubResource("StyleBox_health")
 
 [node name="HealthLabel" type="Label" parent="UI/HealthPanel"]
-text = "玩家生命  5 / 5"
+text = "玩家生命  50 / 50"
 theme_override_colors/font_color = Color(1, 0.9, 0.9, 1)
 theme_override_font_sizes/font_size = 20
 
@@ -307,7 +307,7 @@ offset_bottom = 358.0
 theme_override_styles/panel = SubResource("StyleBox_stats")
 
 [node name="StatsLabel" type="Label" parent="UI/StatsPanel"]
-text = "攻击 1    攻速 +0%"
+text = "攻击 3    攻速 +0%"
 theme_override_colors/font_color = Color(0.85, 0.96, 1, 1)
 theme_override_font_sizes/font_size = 20
 
@@ -331,7 +331,7 @@ offset_bottom = 58.0
 theme_override_styles/panel = SubResource("StyleBox_stats")
 
 [node name="BodyPartsLabel" type="Label" parent="UI/BodyPartsPanel"]
-text = "头部 5/5  身体 8/8  左臂 4/4  右臂 4/4  左腿 5/5  右腿 5/5"
+text = "头部 8/8  身体 14/14  左臂 7/7  右臂 7/7  左腿 7/7  右腿 7/7"
 horizontal_alignment = 1
 theme_override_colors/font_color = Color(0.85, 0.96, 1, 1)
 theme_override_font_sizes/font_size = 17
@@ -503,9 +503,7 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "攻击力
 
-+1 伤害
-
-第三段同样增强"
++1 伤害"
 theme_override_font_sizes/font_size = 22
 
 [node name="SpeedButton" type="Button" parent="UI/UpgradePanel/Margin/VBox/Choices"]
@@ -514,18 +512,14 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "攻击速度
 
-+15% 攻速
-
-连招更加流畅"
++20% 攻速"
 theme_override_font_sizes/font_size = 22
 
 [node name="HealthButton" type="Button" parent="UI/UpgradePanel/Margin/VBox/Choices"]
 custom_minimum_size = Vector2(230, 210)
 layout_mode = 2
 size_flags_horizontal = 3
-text = "生命上限
+text = "随机强化
 
-+2 最大生命
-
-同时回复 2 点"
+每次显示三项"
 theme_override_font_sizes/font_size = 22
