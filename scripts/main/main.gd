@@ -38,6 +38,7 @@ var _multiplayer_map: String = MAP_ARENA
 var _offered_upgrades: Array[String] = []
 var _last_clash_time: Dictionary = {}
 var _last_melee_swing: Dictionary = {}
+var _last_combat_effect: Dictionary = {}
 var _last_regeneration_time: Dictionary = {}
 var _player_names: Dictionary = {}
 var _player_avatars: Dictionary = {}
@@ -45,6 +46,7 @@ var _pending_pvp_upgrade_offers: Dictionary = {}
 var _pvp_upgrade_selection_active: bool = false
 var _selected_avatar_base64: String = ""
 var _ping_timer: float = 0.0
+var _smoothed_latency_msec: float = 0.0
 const UPGRADE_POOL := [
 	{"id": "attack", "title": "攻击力", "detail": "+1 伤害"},
 	{"id": "attack_speed", "title": "攻击速度", "detail": "+20% 攻速"},
@@ -102,9 +104,9 @@ func _process(delta: float) -> void:
 	_ping_timer -= delta
 	if _ping_timer > 0.0:
 		return
-	_ping_timer = 1.0
+	_ping_timer = 0.5
 	if multiplayer.is_server():
-		_ping_label.text = "延迟 0 ms（主机）"
+		_ping_label.text = "延迟 0 ms（主机）· 同步 60 Hz"
 	else:
 		_ping_server.rpc_id(1, Time.get_ticks_msec())
 
@@ -286,7 +288,7 @@ func _host_game() -> void:
 	_release_text_input()
 	var peer := ENetMultiplayerPeer.new()
 	var port := _selected_port()
-	var error := peer.create_server(port, MAX_CLIENTS)
+	var error := peer.create_server(port, MAX_CLIENTS, 4)
 	if error != OK:
 		_network_status.text = "创建主机失败：%s" % error_string(error)
 		return
@@ -315,7 +317,7 @@ func _join_game() -> void:
 		address = "127.0.0.1"
 	var peer := ENetMultiplayerPeer.new()
 	var port := _selected_port()
-	var error := peer.create_client(address, port)
+	var error := peer.create_client(address, port, 4)
 	if error != OK:
 		_network_status.text = "连接失败：%s" % error_string(error)
 		return
@@ -512,9 +514,206 @@ func _ping_server(sent_msec: int) -> void:
 @rpc("authority", "call_remote", "unreliable")
 func _ping_reply(sent_msec: int) -> void:
 	var latency := maxi(Time.get_ticks_msec() - sent_msec, 0)
-	_ping_label.text = "延迟 %d ms" % latency
+	_smoothed_latency_msec = float(latency) if _smoothed_latency_msec <= 0.0 \
+		else lerpf(_smoothed_latency_msec, float(latency), 0.4)
+	_ping_label.text = "延迟 %d ms · 同步 60 Hz" % roundi(_smoothed_latency_msec)
 	_ping_label.modulate = Color(0.4, 1.0, 0.5) if latency < 80 \
 		else Color(1.0, 0.82, 0.25) if latency < 160 else Color(1.0, 0.3, 0.25)
+
+
+func submit_player_network_state(
+	peer_id: int,
+	state_sequence: int,
+	network_position: Vector2,
+	network_velocity: Vector2,
+	facing: float,
+	attack_phase: int,
+	attack_kind: int,
+	blocking: bool,
+	dashing: bool,
+	animation_time: float,
+	sword_rotation: float,
+	slash_visible: bool,
+	shield_rotation: float
+) -> void:
+	if not multiplayer.has_multiplayer_peer() or not _pvp_mode:
+		return
+	if multiplayer.is_server():
+		_server_accept_player_network_state(
+			peer_id, state_sequence, network_position, network_velocity, facing,
+			attack_phase, attack_kind, blocking, dashing, animation_time,
+			sword_rotation, slash_visible, shield_rotation
+		)
+	else:
+		_submit_player_network_state.rpc_id(
+			1, peer_id, state_sequence, network_position, network_velocity, facing,
+			attack_phase, attack_kind, blocking, dashing, animation_time,
+			sword_rotation, slash_visible, shield_rotation
+		)
+
+
+@rpc("any_peer", "call_remote", "unreliable_ordered", 0)
+func _submit_player_network_state(
+	peer_id: int,
+	state_sequence: int,
+	network_position: Vector2,
+	network_velocity: Vector2,
+	facing: float,
+	attack_phase: int,
+	attack_kind: int,
+	blocking: bool,
+	dashing: bool,
+	animation_time: float,
+	sword_rotation: float,
+	slash_visible: bool,
+	shield_rotation: float
+) -> void:
+	if not multiplayer.is_server() or multiplayer.get_remote_sender_id() != peer_id:
+		return
+	_server_accept_player_network_state(
+		peer_id, state_sequence, network_position, network_velocity, facing,
+		attack_phase, attack_kind, blocking, dashing, animation_time,
+		sword_rotation, slash_visible, shield_rotation
+	)
+
+
+func _server_accept_player_network_state(
+	peer_id: int,
+	state_sequence: int,
+	network_position: Vector2,
+	network_velocity: Vector2,
+	facing: float,
+	attack_phase: int,
+	attack_kind: int,
+	blocking: bool,
+	dashing: bool,
+	animation_time: float,
+	sword_rotation: float,
+	slash_visible: bool,
+	shield_rotation: float
+) -> void:
+	var player := get_node_or_null("Player_%d" % peer_id) as Player
+	if not is_instance_valid(player):
+		return
+	if peer_id != multiplayer.get_unique_id():
+		player.receive_network_state(
+			state_sequence, network_position, network_velocity, facing,
+			attack_phase, attack_kind, blocking, dashing, animation_time,
+			sword_rotation, slash_visible, shield_rotation, 0.0, true
+		)
+	for target_peer_id in multiplayer.get_peers():
+		if target_peer_id == peer_id:
+			continue
+		_receive_player_network_state.rpc_id(
+			target_peer_id, peer_id, state_sequence, network_position,
+			network_velocity, facing, attack_phase, attack_kind, blocking,
+			dashing, animation_time, sword_rotation, slash_visible,
+			shield_rotation
+		)
+
+
+@rpc("authority", "call_remote", "unreliable_ordered", 0)
+func _receive_player_network_state(
+	peer_id: int,
+	state_sequence: int,
+	network_position: Vector2,
+	network_velocity: Vector2,
+	facing: float,
+	attack_phase: int,
+	attack_kind: int,
+	blocking: bool,
+	dashing: bool,
+	animation_time: float,
+	sword_rotation: float,
+	slash_visible: bool,
+	shield_rotation: float
+) -> void:
+	if peer_id == multiplayer.get_unique_id():
+		return
+	var player := get_node_or_null("Player_%d" % peer_id) as Player
+	if not is_instance_valid(player):
+		return
+	var prediction_seconds := clampf(
+		maxf(_smoothed_latency_msec / 1000.0, 1.0 / 60.0),
+		1.0 / 60.0,
+		0.12
+	)
+	player.receive_network_state(
+		state_sequence, network_position, network_velocity, facing,
+		attack_phase, attack_kind, blocking, dashing, animation_time,
+		sword_rotation, slash_visible, shield_rotation, prediction_seconds
+	)
+
+
+func request_player_combat_effect(
+	peer_id: int,
+	effect_sequence: int,
+	action: String,
+	step: int,
+	kind: int,
+	facing: float
+) -> void:
+	if multiplayer.is_server():
+		_server_relay_player_combat_effect(
+			peer_id, effect_sequence, action, step, kind, facing
+		)
+	else:
+		_request_player_combat_effect.rpc_id(
+			1, peer_id, effect_sequence, action, step, kind, facing
+		)
+
+
+@rpc("any_peer", "call_remote", "reliable", 1)
+func _request_player_combat_effect(
+	peer_id: int,
+	effect_sequence: int,
+	action: String,
+	step: int,
+	kind: int,
+	facing: float
+) -> void:
+	if not multiplayer.is_server() or multiplayer.get_remote_sender_id() != peer_id:
+		return
+	_server_relay_player_combat_effect(
+		peer_id, effect_sequence, action, step, kind, facing
+	)
+
+
+func _server_relay_player_combat_effect(
+	peer_id: int,
+	effect_sequence: int,
+	action: String,
+	step: int,
+	kind: int,
+	facing: float
+) -> void:
+	if effect_sequence <= int(_last_combat_effect.get(peer_id, -1)):
+		return
+	_last_combat_effect[peer_id] = effect_sequence
+	var player := get_node_or_null("Player_%d" % peer_id) as Player
+	if not is_instance_valid(player):
+		return
+	if peer_id != multiplayer.get_unique_id():
+		player.apply_network_combat_effect(action, step, kind, facing)
+	for target_peer_id in multiplayer.get_peers():
+		if target_peer_id != peer_id:
+			_receive_player_combat_effect.rpc_id(
+				target_peer_id, peer_id, effect_sequence, action, step, kind, facing
+			)
+
+
+@rpc("authority", "call_remote", "reliable", 1)
+func _receive_player_combat_effect(
+	peer_id: int,
+	_effect_sequence: int,
+	action: String,
+	step: int,
+	kind: int,
+	facing: float
+) -> void:
+	var player := get_node_or_null("Player_%d" % peer_id) as Player
+	if is_instance_valid(player) and peer_id != multiplayer.get_unique_id():
+		player.apply_network_combat_effect(action, step, kind, facing)
 
 
 func request_pvp_damage(
@@ -537,32 +736,37 @@ func request_pvp_melee_swing(
 	attack_sequence: int,
 	attack_kind: int,
 	combo_step: int,
-	facing: float
+	facing: float,
+	attack_position: Vector2 = Vector2.INF
 ) -> void:
 	if not multiplayer.has_multiplayer_peer() or not _pvp_mode:
 		return
 	if multiplayer.is_server():
 		_server_resolve_pvp_melee_swing(
-			attacker_peer_id, attack_sequence, attack_kind, combo_step, facing
+			attacker_peer_id, attack_sequence, attack_kind, combo_step, facing,
+			attack_position
 		)
 	else:
 		_request_pvp_melee_swing.rpc_id(
-			1, attacker_peer_id, attack_sequence, attack_kind, combo_step, facing
+			1, attacker_peer_id, attack_sequence, attack_kind, combo_step, facing,
+			attack_position
 		)
 
 
-@rpc("any_peer", "call_remote", "reliable")
+@rpc("any_peer", "call_remote", "reliable", 2)
 func _request_pvp_melee_swing(
 	attacker_peer_id: int,
 	attack_sequence: int,
 	attack_kind: int,
 	combo_step: int,
-	facing: float
+	facing: float,
+	attack_position: Vector2
 ) -> void:
 	if not multiplayer.is_server() or multiplayer.get_remote_sender_id() != attacker_peer_id:
 		return
 	_server_resolve_pvp_melee_swing(
-		attacker_peer_id, attack_sequence, attack_kind, combo_step, facing
+		attacker_peer_id, attack_sequence, attack_kind, combo_step, facing,
+		attack_position
 	)
 
 
@@ -571,7 +775,8 @@ func _server_resolve_pvp_melee_swing(
 	attack_sequence: int,
 	attack_kind: int,
 	combo_step: int,
-	facing: float
+	facing: float,
+	attack_position: Vector2 = Vector2.INF
 ) -> void:
 	if not _pvp_mode or _pvp_round_ending:
 		return
@@ -586,6 +791,9 @@ func _server_resolve_pvp_melee_swing(
 	var attacker := get_node_or_null("Player_%d" % attacker_peer_id) as Player
 	if not is_instance_valid(attacker):
 		return
+	if attack_position.is_finite() \
+		and attacker.global_position.distance_to(attack_position) <= 320.0:
+		attacker.global_position = attack_position
 	attacker.server_confirm_melee_swing(attack_kind, combo_step, facing)
 	var reach := 155.0
 	var vertical_reach := 92.0
@@ -743,7 +951,7 @@ func _server_apply_pvp_damage(
 			_show_combat_message.rpc(victim.global_position + Vector2(0, -70), "魔法免疫")
 			return
 		damage = attacker.get_spell_damage()
-	var allowed_distance := 950.0 if damage_kind == "spell" else 190.0
+	var allowed_distance := 950.0 if damage_kind == "spell" else 270.0
 	if attacker.global_position.distance_to(victim.global_position) > allowed_distance:
 		return
 	var resolved_kind := "low" if damage_kind == "melee" \
@@ -847,6 +1055,7 @@ func _remove_network_player(peer_id: int) -> void:
 	_player_avatars.erase(peer_id)
 	_pvp_kills.erase(peer_id)
 	_last_melee_swing.erase(peer_id)
+	_last_combat_effect.erase(peer_id)
 	_pending_pvp_upgrade_offers.erase(peer_id)
 	_update_pvp_scoreboard()
 	_network_status.text = "当前玩家：%d / 8" % _network_players.size()

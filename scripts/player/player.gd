@@ -105,7 +105,11 @@ var _network_target_position: Vector2
 var _network_target_velocity: Vector2
 var _network_facing: float = 1.0
 var _network_send_timer: float = 0.0
+var _network_state_sequence: int = 0
+var _last_received_state_sequence: int = -1
+var _network_prediction_seconds: float = 0.025
 var _network_attack_sequence: int = 0
+var _network_effect_sequence: int = 0
 var _hit_targets: Dictionary = {}
 var _parts: Dictionary = {}
 var _sword_tween: Tween
@@ -144,15 +148,25 @@ func _ready() -> void:
 	_network_target_position = global_position
 
 
+func _game_controller() -> Node:
+	var node := get_parent()
+	while is_instance_valid(node):
+		if node.has_method("request_pvp_damage"):
+			return node
+		node = node.get_parent()
+	return get_tree().current_scene
+
+
 func _physics_process(delta: float) -> void:
 	_animation_time += delta
 	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
 		_update_network_proxy_timers(delta)
-		var predicted_position := _network_target_position + _network_target_velocity * 0.045
-		if global_position.distance_to(_network_target_position) > 180.0:
-			global_position = _network_target_position
+		var predicted_position := _network_target_position \
+			+ _network_target_velocity * _network_prediction_seconds
+		if global_position.distance_to(predicted_position) > 140.0:
+			global_position = predicted_position
 		else:
-			global_position = global_position.lerp(predicted_position, minf(delta * 28.0, 1.0))
+			global_position = global_position.lerp(predicted_position, minf(delta * 45.0, 1.0))
 		velocity = _network_target_velocity
 		_visual.scale.x = _network_facing
 		_animate_body_parts()
@@ -179,20 +193,25 @@ func _physics_process(delta: float) -> void:
 	_animate_body_parts()
 	_network_send_timer -= delta
 	if multiplayer.has_multiplayer_peer() and _network_send_timer <= 0.0:
-		_network_send_timer = 1.0 / 30.0
-		_receive_network_state.rpc(
-			global_position,
-			velocity,
-			_visual.scale.x,
-			int(_attack_phase),
-			int(_attack_kind),
-			_is_blocking,
-			_dash_timer > 0.0,
-			_animation_time,
-			_sword_pivot.rotation,
-			_slash_visual.visible,
-			_shield.rotation
-		)
+		_network_send_timer = 1.0 / 60.0
+		_network_state_sequence += 1
+		var main := _game_controller()
+		if is_instance_valid(main) and main.has_method("submit_player_network_state"):
+			main.submit_player_network_state(
+				get_multiplayer_authority(),
+				_network_state_sequence,
+				global_position,
+				velocity,
+				_visual.scale.x,
+				int(_attack_phase),
+				int(_attack_kind),
+				_is_blocking,
+				_dash_timer > 0.0,
+				_animation_time,
+				_sword_pivot.rotation,
+				_slash_visual.visible,
+				_shield.rotation
+			)
 
 
 func _update_network_proxy_timers(delta: float) -> void:
@@ -329,7 +348,7 @@ func _start_attack(step: int, kind: AttackKind = AttackKind.NORMAL) -> void:
 			_attack_area.position = Vector2(48.0 + step * 5.0, 0)
 	_play_sword_windup(step)
 	if multiplayer.has_multiplayer_peer():
-		_sync_combat_effect.rpc("attack", step, int(kind), _visual.scale.x)
+		_send_network_combat_effect("attack", step, int(kind), _visual.scale.x)
 
 
 func _begin_active_attack() -> void:
@@ -339,14 +358,15 @@ func _begin_active_attack() -> void:
 	_play_sword_swing(_combo_step)
 	if multiplayer.has_multiplayer_peer() and is_multiplayer_authority():
 		_network_attack_sequence += 1
-		var main := get_tree().current_scene
+		var main := _game_controller()
 		if is_instance_valid(main) and main.has_method("request_pvp_melee_swing"):
 			main.request_pvp_melee_swing(
 				get_multiplayer_authority(),
 				_network_attack_sequence,
 				int(_attack_kind),
 				_combo_step,
-				signf(_visual.scale.x)
+				signf(_visual.scale.x),
+				global_position
 			)
 	if _attack_kind == AttackKind.AIR:
 		velocity.y = 220.0
@@ -378,7 +398,7 @@ func _damage_overlapping_enemies() -> void:
 		if area is MagicBolt:
 			var bolt := area as MagicBolt
 			if bolt.caster != self:
-				var main := get_tree().current_scene
+				var main := _game_controller()
 				if multiplayer.has_multiplayer_peer() and is_instance_valid(main) \
 					and main.has_method("request_magic_bolt_destroy"):
 					main.request_magic_bolt_destroy(get_multiplayer_authority(), bolt.global_position)
@@ -429,7 +449,7 @@ func _apply_damage_to_part(part: BodyPart, damage: int) -> bool:
 				signf(part.actor.global_position.x - global_position.x),
 				hard_clash
 			)
-		var main := get_tree().current_scene
+		var main := _game_controller()
 		if is_instance_valid(main) and main.has_method("show_local_combat_message"):
 			main.show_local_combat_message((global_position + part.actor.global_position) * 0.5, "拼刀！")
 		return true
@@ -438,7 +458,7 @@ func _apply_damage_to_part(part: BodyPart, damage: int) -> bool:
 
 
 func request_network_damage(target: Player, part_id: StringName, damage: int, damage_kind: String) -> void:
-	var main := get_tree().current_scene
+	var main := _game_controller()
 	if not is_instance_valid(main) or not main.has_method("request_pvp_damage"):
 		return
 	main.request_pvp_damage(
@@ -587,8 +607,8 @@ func set_king(enabled: bool) -> void:
 	_king_label.visible = enabled
 
 
-@rpc("authority", "call_remote", "unreliable_ordered")
-func _receive_network_state(
+func receive_network_state(
+	state_sequence: int,
 	network_position: Vector2,
 	network_velocity: Vector2,
 	facing: float,
@@ -599,12 +619,18 @@ func _receive_network_state(
 	animation_time: float,
 	sword_rotation: float,
 	slash_visible: bool,
-	shield_rotation: float
+	shield_rotation: float,
+	prediction_seconds: float,
+	server_direct: bool = false
 ) -> void:
+	if state_sequence <= _last_received_state_sequence:
+		return
+	_last_received_state_sequence = state_sequence
 	var was_blocking := _is_blocking
 	_network_target_position = network_position
 	_network_target_velocity = network_velocity
 	_network_facing = facing
+	_network_prediction_seconds = clampf(prediction_seconds, 0.0, 0.12)
 	_attack_phase = attack_phase as AttackPhase
 	_attack_kind = attack_kind as AttackKind
 	_is_blocking = blocking
@@ -618,6 +644,10 @@ func _receive_network_state(
 	_shield.rotation = shield_rotation
 	_shield.modulate = Color(0.55, 0.9, 1.0, 1.0) if blocking else Color.WHITE
 	_dash_visual.visible = dashing
+	if server_direct:
+		global_position = network_position
+		velocity = network_velocity
+		_visual.scale.x = facing
 
 
 func is_network_attack_active() -> bool:
@@ -786,7 +816,7 @@ func start_dash() -> void:
 	_set_parts_tint(Color(0.35, 0.95, 1.0, 0.42))
 	velocity = Vector2(_dash_direction * dash_speed * _dash_multiplier, 0.0)
 	if multiplayer.has_multiplayer_peer():
-		_sync_combat_effect.rpc("dash", 0, 0, _dash_direction)
+		_send_network_combat_effect("dash", 0, 0, _dash_direction)
 
 
 func _update_dash(delta: float) -> void:
@@ -820,7 +850,7 @@ func modify_incoming_damage(amount: int, source_position: Vector2, damage_kind: 
 		return amount
 	if _block_timer <= perfect_block_duration:
 		_stun_attacker(source_position)
-		var main := get_tree().current_scene
+		var main := _game_controller()
 		if is_instance_valid(main) and main.has_method("show_local_combat_message"):
 			main.show_local_combat_message(global_position + Vector2(0, -55), "格挡！")
 		return 0
@@ -848,7 +878,7 @@ func _start_block() -> void:
 	_shield.rotation = deg_to_rad(-8.0)
 	_shield.modulate = Color(0.55, 0.9, 1.0, 1.0)
 	if multiplayer.has_multiplayer_peer():
-		_sync_combat_effect.rpc("block_start", 0, 0, _block_facing)
+		_send_network_combat_effect("block_start", 0, 0, _block_facing)
 
 
 func _stop_block(start_cooldown: bool = true) -> void:
@@ -858,7 +888,7 @@ func _stop_block(start_cooldown: bool = true) -> void:
 	if was_blocking and start_cooldown:
 		_block_cooldown_timer = block_cooldown
 	if was_blocking and multiplayer.has_multiplayer_peer() and is_multiplayer_authority():
-		_sync_combat_effect.rpc("block_stop", 0, 0, _block_facing)
+		_send_network_combat_effect("block_stop", 0, 0, _block_facing)
 	if is_instance_valid(_shield):
 		_shield.rotation = 0.0
 		_shield.modulate = Color.WHITE
@@ -875,7 +905,7 @@ func _stun_attacker(source_position: Vector2) -> void:
 		if distance < best_distance:
 			attacker = candidate
 			best_distance = distance
-	for node in get_tree().current_scene.get_children():
+	for node in _game_controller().get_children():
 		if node is TrainingDummy:
 			var candidate := node as Node2D
 			var distance := candidate.global_position.distance_squared_to(source_position)
@@ -1005,7 +1035,7 @@ func _on_health_regeneration_timeout() -> void:
 	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
 		return
 	if multiplayer.has_multiplayer_peer():
-		var main := get_tree().current_scene
+		var main := _game_controller()
 		if is_instance_valid(main) and main.has_method("request_player_regeneration"):
 			main.request_player_regeneration(get_multiplayer_authority())
 	else:
@@ -1067,14 +1097,29 @@ func cast_spell() -> bool:
 	if is_zero_approx(bolt.direction):
 		bolt.direction = 1.0
 	bolt.global_position = global_position + Vector2(bolt.direction * 42.0, -10.0)
-	get_tree().current_scene.add_child(bolt)
+	_game_controller().add_child(bolt)
 	if multiplayer.has_multiplayer_peer():
-		_sync_combat_effect.rpc("spell", 0, 0, bolt.direction)
+		_send_network_combat_effect("spell", 0, 0, bolt.direction)
 	return true
 
 
-@rpc("authority", "call_remote", "unreliable_ordered", 1)
-func _sync_combat_effect(action: String, step: int, kind: int, facing: float) -> void:
+func _send_network_combat_effect(action: String, step: int, kind: int, facing: float) -> void:
+	if not is_multiplayer_authority():
+		return
+	_network_effect_sequence += 1
+	var main := _game_controller()
+	if is_instance_valid(main) and main.has_method("request_player_combat_effect"):
+		main.request_player_combat_effect(
+			get_multiplayer_authority(),
+			_network_effect_sequence,
+			action,
+			step,
+			kind,
+			facing
+		)
+
+
+func apply_network_combat_effect(action: String, step: int, kind: int, facing: float) -> void:
 	_visual.scale.x = facing
 	match action:
 		"attack":
@@ -1119,7 +1164,7 @@ func _sync_combat_effect(action: String, step: int, kind: int, facing: float) ->
 				bolt.collision_layer = 0
 				bolt.collision_mask = 0
 			bolt.global_position = global_position + Vector2(facing * 42.0, -10.0)
-			get_tree().current_scene.add_child(bolt)
+			_game_controller().add_child(bolt)
 		"block_start":
 			_shield.visible = true
 			_shield.modulate = Color(0.55, 0.9, 1.0, 1.0)
@@ -1127,6 +1172,11 @@ func _sync_combat_effect(action: String, step: int, kind: int, facing: float) ->
 		"block_stop":
 			_is_blocking = false
 			_shield.modulate = Color.WHITE
+
+
+func _sync_combat_effect(action: String, step: int, kind: int, facing: float) -> void:
+	# Kept as a local compatibility wrapper for existing tests.
+	apply_network_combat_effect(action, step, kind, facing)
 
 
 func set_controls_enabled(enabled: bool) -> void:

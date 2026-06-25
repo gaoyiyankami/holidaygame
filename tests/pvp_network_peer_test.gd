@@ -12,6 +12,8 @@ var _initial_upgrade_count := 0
 var _connected := false
 var _choice_submitted := false
 var _choice_wait := 0.0
+var _remote_state_seen := false
+var _remote_state_sequence := -1
 var _knockback_seen := false
 
 @onready var _main := $Main
@@ -59,6 +61,16 @@ func _process(delta: float) -> void:
 		return
 	if _main.get("_network_players").size() < 3:
 		return
+	for peer_id in _main.get("_network_players"):
+		if int(peer_id) in [1, local_id]:
+			continue
+		var remote_player := _main.get_node_or_null("Player_%d" % peer_id) as Player
+		if is_instance_valid(remote_player) \
+			and remote_player.global_position.distance_to(Vector2(780, 610)) < 80.0:
+			_remote_state_seen = true
+			_remote_state_sequence = int(remote_player.get("_last_received_state_sequence"))
+	if not _remote_state_seen:
+		return
 	local_player.global_position = Vector2(700, 610)
 	local_player.get_node("Visual").scale.x = 1.0
 	if _initial_attack_damage == 0:
@@ -89,13 +101,16 @@ func _process(delta: float) -> void:
 		var upgraded: bool = local_player.get_applied_upgrade_count() > _initial_upgrade_count
 		if not upgraded and _choice_wait < 3.0:
 			return
-		print("E2E ATTACKER RESULT kills=%d upgraded=%s count=%d damage=%d" % [
+		var relay_fast := _remote_state_sequence >= 30
+		print("E2E ATTACKER RESULT relay=%s seq=%d kills=%d upgraded=%s count=%d damage=%d" % [
+			_remote_state_seen,
+			_remote_state_sequence,
 			kills,
 			upgraded,
 			local_player.get_applied_upgrade_count(),
 			local_player.attack_damage,
 		])
-		get_tree().quit(0 if upgraded else 1)
+		get_tree().quit(0 if upgraded and relay_fast else 1)
 
 
 func _on_connected() -> void:
