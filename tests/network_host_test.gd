@@ -22,6 +22,7 @@ func _ready() -> void:
 	var refresh_setting_applied := Engine.max_fps == 120
 	main.call("_show_start_menu")
 	main.call("_show_multiplayer_menu")
+	main.get_node("UI/NetworkPanel/VBox/NameInput").text = "测试主机"
 	var separate_network_page: bool = not main.get_node("UI/StartMenu").visible \
 		and main.get_node("UI/NetworkPanel").visible \
 		and not main.get_node("Player").visible
@@ -29,6 +30,9 @@ func _ready() -> void:
 	await get_tree().process_frame
 	var peer_ready := multiplayer.has_multiplayer_peer() and multiplayer.is_server()
 	var player_ready := main.has_node("Player_1")
+	await get_tree().process_frame
+	var ping_display_ready: bool = main.get_node("UI/PingLabel").visible \
+		and "主机" in main.get_node("UI/PingLabel").text
 	var pvp_map_ready: bool = main.get_node("PvPMap").visible \
 		and main.get_node_or_null("TrainingDummy") == null
 	var map_selector_ready: bool = main.get_node(
@@ -60,6 +64,11 @@ func _ready() -> void:
 	main.call("_spawn_network_player", 2)
 	var remote_player := main.get_node("Player_2") as Player
 	var host_player := main.get_node("Player_1") as Player
+	main.call("_sync_player_names", {1: "测试主机", 2: "测试玩家"})
+	var names_synced := host_player.get_player_display_name() == "测试主机" \
+		and remote_player.get_player_display_name() == "测试玩家"
+	var overhead_health_ready := "50/50" in host_player.get_node("PlayerHealthLabel").text \
+		and "50/50" in remote_player.get_node("PlayerHealthLabel").text
 	host_player.position = Vector2(500, 610)
 	remote_player.position = Vector2(580, 610)
 	host_player.get_node("Visual").scale.x = 1.0
@@ -76,6 +85,25 @@ func _ready() -> void:
 	main.request_pvp_damage(1, 2, "left_leg", 1, "melee")
 	await get_tree().process_frame
 	var pvp_damage_synced := remote_leg.health == leg_before - 1
+	var host_torso: BodyPart
+	for node in host_player.get_node("Visual/Parts").get_children():
+		var host_part := node as BodyPart
+		if host_part.part_id == "torso":
+			host_torso = host_part
+			break
+	host_player.set("_invincibility_timer", 0.0)
+	remote_player.call("_start_attack", 1)
+	remote_player.call("_begin_active_attack")
+	var host_health_before := host_torso.health
+	host_player.set("_attack_phase", 0)
+	main.request_pvp_damage(2, 1, "torso", 1, "melee")
+	var mutual_damage_works := host_torso.health < host_health_before \
+		and remote_leg.health == leg_before - 1
+	var independent_health_labels := str(host_player.get_health()) in host_player.get_node(
+		"PlayerHealthLabel"
+	).text and str(remote_player.get_health()) in remote_player.get_node(
+		"PlayerHealthLabel"
+	).text
 	var green_dot := remote_leg.get_status_color().g > remote_leg.get_status_color().r
 	var remote_torso: BodyPart
 	for node in remote_player.get_node("Visual/Parts").get_children():
@@ -160,7 +188,7 @@ func _ready() -> void:
 	var eight_kills_wins := main.is_pvp_round_ending() \
 		and host_player.get_node("KingLabel").visible
 	var world_visible_after_start: bool = main.get_node("Player_1").visible
-	print("Network host test: menu=%s clean_menu=%s settings=%s port=%s hidden=%s page=%s peer=%s player=%s map=%s selector=%s large=%s hall_off=%s arena_on=%s no_traps=%s top=%s visible=%s damage=%s green=%s red=%s magic_guard=%s perfect=%s clash=%s reject=%s limb=%s effect=%s upgrade=%s reset=%s win=%s" % [
+	print("Network host test: menu=%s clean_menu=%s settings=%s port=%s hidden=%s page=%s peer=%s player=%s ping=%s names=%s overhead=%s mutual=%s map=%s selector=%s large=%s hall_off=%s arena_on=%s no_traps=%s top=%s visible=%s damage=%s green=%s red=%s magic_guard=%s perfect=%s clash=%s reject=%s limb=%s effect=%s upgrade=%s reset=%s win=%s" % [
 		menu_visible,
 		no_world_on_menu,
 		settings_page_ready and refresh_setting_applied,
@@ -169,6 +197,10 @@ func _ready() -> void:
 		separate_network_page,
 		peer_ready,
 		player_ready,
+		ping_display_ready,
+		names_synced,
+		overhead_health_ready and independent_health_labels,
+		mutual_damage_works,
 		pvp_map_ready,
 		map_selector_ready,
 		arena_is_large,
@@ -196,6 +228,8 @@ func _ready() -> void:
 		and settings_page_ready and refresh_setting_applied \
 		and port_available and world_hidden_before_start \
 		and separate_network_page and peer_ready and player_ready and pvp_map_ready \
+		and ping_display_ready and names_synced and overhead_health_ready \
+		and mutual_damage_works and independent_health_labels \
 		and map_selector_ready and arena_is_large and hall_hidden_in_arena \
 		and hall_collisions_disabled and arena_collisions_enabled \
 		and hall_switch_clean and traps_removed \

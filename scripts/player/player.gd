@@ -104,6 +104,7 @@ var _last_attacker_peer_id: int = 0
 var _network_target_position: Vector2
 var _network_target_velocity: Vector2
 var _network_facing: float = 1.0
+var _network_send_timer: float = 0.0
 var _hit_targets: Dictionary = {}
 var _parts: Dictionary = {}
 var _sword_tween: Tween
@@ -120,6 +121,8 @@ const MAGIC_BOLT_SCENE := preload("res://scenes/combat/magic_bolt.tscn")
 @onready var _shield: Node2D = $Visual/Shield
 @onready var _camera: Camera2D = $Camera2D
 @onready var _king_label: Label = $KingLabel
+@onready var _player_name_label: Label = $PlayerNameLabel
+@onready var _player_health_label: Label = $PlayerHealthLabel
 
 
 func _ready() -> void:
@@ -141,10 +144,11 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_animation_time += delta
 	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
+		var predicted_position := _network_target_position + _network_target_velocity * 0.045
 		if global_position.distance_to(_network_target_position) > 180.0:
 			global_position = _network_target_position
 		else:
-			global_position = global_position.lerp(_network_target_position, minf(delta * 22.0, 1.0))
+			global_position = global_position.lerp(predicted_position, minf(delta * 28.0, 1.0))
 		velocity = _network_target_velocity
 		_visual.scale.x = _network_facing
 		_animate_body_parts()
@@ -169,7 +173,9 @@ func _physics_process(delta: float) -> void:
 			velocity.x = move_toward(velocity.x, 0.0, friction * delta)
 	move_and_slide()
 	_animate_body_parts()
-	if multiplayer.has_multiplayer_peer():
+	_network_send_timer -= delta
+	if multiplayer.has_multiplayer_peer() and _network_send_timer <= 0.0:
+		_network_send_timer = 1.0 / 30.0
 		_receive_network_state.rpc(
 			global_position,
 			velocity,
@@ -466,6 +472,14 @@ func set_camera_world_width(width: int) -> void:
 
 func set_pvp_enabled(enabled: bool) -> void:
 	_pvp_enabled = enabled
+
+
+func set_player_display_name(display_name: String) -> void:
+	_player_name_label.text = display_name.left(18)
+
+
+func get_player_display_name() -> String:
+	return _player_name_label.text
 
 
 @rpc("any_peer", "call_local", "reliable")
@@ -991,7 +1005,7 @@ func cast_spell() -> bool:
 	return true
 
 
-@rpc("authority", "call_remote", "reliable")
+@rpc("authority", "call_remote", "unreliable_ordered", 1)
 func _sync_combat_effect(action: String, step: int, kind: int, facing: float) -> void:
 	_visual.scale.x = facing
 	match action:
@@ -1225,6 +1239,11 @@ func _refresh_body_health() -> void:
 		lines.append("%s %d/%d" % [part.display_name, part.health, part.max_health])
 	health_changed.emit(_health, max_health)
 	body_parts_changed.emit("  ".join(lines))
+	if is_instance_valid(_player_health_label):
+		_player_health_label.text = "生命 %d/%d" % [_health, max_health]
+		var ratio := float(_health) / maxf(float(max_health), 1.0)
+		_player_health_label.modulate = Color(0.4, 1.0, 0.45) if ratio > 0.5 \
+			else Color(1.0, 0.8, 0.25) if ratio > 0.2 else Color(1.0, 0.25, 0.2)
 
 
 func _play_sword_windup(step: int) -> void:

@@ -38,6 +38,8 @@ var _multiplayer_map: String = MAP_ARENA
 var _offered_upgrades: Array[String] = []
 var _last_clash_time: Dictionary = {}
 var _last_regeneration_time: Dictionary = {}
+var _player_names: Dictionary = {}
+var _ping_timer: float = 0.0
 const UPGRADE_POOL := [
 	{"id": "attack", "title": "攻击力", "detail": "+1 伤害"},
 	{"id": "attack_speed", "title": "攻击速度", "detail": "+20% 攻速"},
@@ -66,6 +68,7 @@ const UPGRADE_POOL := [
 @onready var _health_button: Button = $UI/UpgradePanel/Margin/VBox/Choices/HealthButton
 @onready var _network_panel: PanelContainer = $UI/NetworkPanel
 @onready var _address_input: LineEdit = $UI/NetworkPanel/VBox/AddressInput
+@onready var _name_input: LineEdit = $UI/NetworkPanel/VBox/NameInput
 @onready var _port_input: SpinBox = $UI/NetworkPanel/VBox/PortRow/PortInput
 @onready var _host_button: Button = $UI/NetworkPanel/VBox/Buttons/HostButton
 @onready var _join_button: Button = $UI/NetworkPanel/VBox/Buttons/JoinButton
@@ -82,6 +85,20 @@ const UPGRADE_POOL := [
 @onready var _refresh_select: OptionButton = $UI/SettingsPanel/Margin/VBox/RefreshRow/RefreshSelect
 @onready var _apply_settings_button: Button = $UI/SettingsPanel/Margin/VBox/ApplyButton
 @onready var _settings_back_button: Button = $UI/SettingsPanel/Margin/VBox/BackButton
+@onready var _ping_label: Label = $UI/PingLabel
+
+
+func _process(delta: float) -> void:
+	if not _pvp_mode or not multiplayer.has_multiplayer_peer():
+		return
+	_ping_timer -= delta
+	if _ping_timer > 0.0:
+		return
+	_ping_timer = 1.0
+	if multiplayer.is_server():
+		_ping_label.text = "延迟 0 ms（主机）"
+	else:
+		_ping_server.rpc_id(1, Time.get_ticks_msec())
 
 
 func _ready() -> void:
@@ -238,6 +255,8 @@ func _host_game() -> void:
 		return
 	multiplayer.multiplayer_peer = peer
 	_prepare_existing_player_for_network()
+	_player_names[1] = _selected_player_name()
+	_player.set_player_display_name(_player_names[1])
 	_network_players[1] = true
 	_pvp_kills[1] = 0
 	_network_status.text = "主机已开启，端口 %d（最多 8 人）" % port
@@ -278,6 +297,7 @@ func _on_connected_to_server() -> void:
 	_network_panel.visible = false
 	_set_game_active(true)
 	_set_pvp_mode(true)
+	_submit_player_name.rpc_id(1, _selected_player_name())
 
 
 func _is_dedicated_server() -> bool:
@@ -298,6 +318,7 @@ func _set_pvp_mode(enabled: bool) -> void:
 		_current_enemy.set_physics_process(not enabled)
 	_wave_label.visible = not enabled
 	_pvp_score_label.visible = enabled
+	_ping_label.visible = enabled
 	for node in get_tree().get_nodes_in_group("player"):
 		(node as Player).set_pvp_enabled(enabled)
 	if enabled:
@@ -332,6 +353,7 @@ func _on_peer_connected(peer_id: int) -> void:
 		_spawn_network_player.rpc_id(peer_id, existing_id)
 	_spawn_network_player.rpc(peer_id)
 	_apply_multiplayer_map.rpc_id(peer_id, _multiplayer_map)
+	_sync_player_names.rpc_id(peer_id, _player_names)
 	for existing_id in _network_players:
 		var existing := get_node_or_null("Player_%d" % existing_id) as Player
 		if is_instance_valid(existing):
@@ -353,12 +375,54 @@ func _spawn_network_player(peer_id: int) -> void:
 	add_child(player)
 	player.configure_network_authority(peer_id)
 	player.set_pvp_enabled(_pvp_mode)
+	player.set_player_display_name(str(_player_names.get(peer_id, "玩家 %d" % peer_id)))
 	player.pvp_defeated.connect(_on_pvp_player_defeated)
 	_network_players[peer_id] = true
 	_pvp_kills[peer_id] = 0
 	if peer_id == multiplayer.get_unique_id():
 		_bind_local_player(player)
 	_network_status.text = "当前玩家：%d / 8" % _network_players.size()
+
+
+func _selected_player_name() -> String:
+	var chosen := _name_input.text.strip_edges()
+	if chosen.is_empty():
+		chosen = "玩家"
+	return chosen.left(18)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _submit_player_name(display_name: String) -> void:
+	if not multiplayer.is_server():
+		return
+	var peer_id := multiplayer.get_remote_sender_id()
+	_player_names[peer_id] = display_name.strip_edges().left(18)
+	if str(_player_names[peer_id]).is_empty():
+		_player_names[peer_id] = "玩家 %d" % peer_id
+	_sync_player_names.rpc(_player_names)
+
+
+@rpc("authority", "call_local", "reliable")
+func _sync_player_names(names: Dictionary) -> void:
+	_player_names = names.duplicate()
+	for peer_id in _player_names:
+		var player := get_node_or_null("Player_%d" % peer_id) as Player
+		if is_instance_valid(player):
+			player.set_player_display_name(str(_player_names[peer_id]))
+
+
+@rpc("any_peer", "call_remote", "unreliable")
+func _ping_server(sent_msec: int) -> void:
+	if multiplayer.is_server():
+		_ping_reply.rpc_id(multiplayer.get_remote_sender_id(), sent_msec)
+
+
+@rpc("authority", "call_remote", "unreliable")
+func _ping_reply(sent_msec: int) -> void:
+	var latency := maxi(Time.get_ticks_msec() - sent_msec, 0)
+	_ping_label.text = "延迟 %d ms" % latency
+	_ping_label.modulate = Color(0.4, 1.0, 0.5) if latency < 80 \
+		else Color(1.0, 0.82, 0.25) if latency < 160 else Color(1.0, 0.3, 0.25)
 
 
 func request_pvp_damage(
@@ -579,6 +643,7 @@ func _remove_network_player(peer_id: int) -> void:
 	if is_instance_valid(player):
 		player.queue_free()
 	_network_players.erase(peer_id)
+	_player_names.erase(peer_id)
 	_pvp_kills.erase(peer_id)
 	_update_pvp_scoreboard()
 	_network_status.text = "当前玩家：%d / 8" % _network_players.size()
@@ -760,7 +825,8 @@ func _update_pvp_scoreboard() -> void:
 	var ids := _pvp_kills.keys()
 	ids.sort()
 	for peer_id in ids:
-		lines.append("玩家 %d：%d" % [peer_id, int(_pvp_kills[peer_id])])
+		var display_name := str(_player_names.get(peer_id, "玩家 %d" % peer_id))
+		lines.append("%s：%d" % [display_name, int(_pvp_kills[peer_id])])
 	_pvp_score_label.text = "\n".join(lines)
 
 
