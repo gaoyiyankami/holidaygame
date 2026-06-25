@@ -112,6 +112,18 @@ func reset_part() -> void:
 	health_changed.emit(self)
 
 
+func apply_authoritative_state(new_health: int, new_max_health: int) -> void:
+	max_health = maxi(new_max_health, 1)
+	health = clampi(new_health, 0, max_health)
+	var intact := health > 0
+	visible = intact
+	_collision.set_deferred("disabled", not intact)
+	if intact:
+		_visual.modulate = Color.WHITE
+	_update_status_dot()
+	health_changed.emit(self)
+
+
 func set_tint(color: Color) -> void:
 	if health > 0:
 		_visual.modulate = color

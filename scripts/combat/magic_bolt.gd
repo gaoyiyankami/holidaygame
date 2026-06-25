@@ -21,17 +21,15 @@ func _physics_process(delta: float) -> void:
 
 
 func _on_area_entered(area: Area2D) -> void:
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
 	if area is BodyPart:
 		var part := area as BodyPart
 		if part.actor == caster:
 			return
 		if part.actor is Player and multiplayer.has_multiplayer_peer():
-			(part.actor as Player).receive_network_part_damage.rpc(
-				part.part_id,
-				damage,
-				global_position,
-				caster.get_multiplayer_authority() if is_instance_valid(caster) else 0
-			)
+			if is_instance_valid(caster) and caster is Player:
+				(caster as Player).request_network_damage(part.actor as Player, part.part_id, damage, "spell")
 			queue_free()
 		elif part.receive_damage(damage, global_position):
 			queue_free()

@@ -5,15 +5,27 @@ const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
 const MAX_CLIENTS := 7
 const PVP_KILLS_TO_WIN := 8
 const PVP_SPAWNS := [
-	Vector2(160, 610),
-	Vector2(1120, 610),
-	Vector2(300, 330),
-	Vector2(980, 330),
-	Vector2(500, 610),
-	Vector2(780, 610),
-	Vector2(470, 330),
-	Vector2(810, 330),
+	Vector2(150, 610),
+	Vector2(2050, 610),
+	Vector2(420, 390),
+	Vector2(1780, 390),
+	Vector2(760, 610),
+	Vector2(1440, 610),
+	Vector2(850, 250),
+	Vector2(1350, 250),
 ]
+const HALL_SPAWNS := [
+	Vector2(150, 610),
+	Vector2(1130, 610),
+	Vector2(300, 450),
+	Vector2(900, 360),
+	Vector2(480, 610),
+	Vector2(800, 610),
+	Vector2(360, 610),
+	Vector2(980, 610),
+]
+const MAP_HALL := "hall"
+const MAP_ARENA := "arena"
 
 var _wave: int = 1
 var _current_enemy: TrainingDummy
@@ -22,6 +34,7 @@ var _network_players: Dictionary = {}
 var _pvp_mode: bool = false
 var _pvp_kills: Dictionary = {}
 var _pvp_round_ending: bool = false
+var _multiplayer_map: String = MAP_ARENA
 
 @onready var _player: Player = $Player
 @onready var _enemy_spawn: Marker2D = $EnemySpawn
@@ -46,6 +59,7 @@ var _pvp_round_ending: bool = false
 @onready var _multi_button: Button = $UI/StartMenu/Margin/VBox/MultiButton
 @onready var _back_button: Button = $UI/NetworkPanel/VBox/BackButton
 @onready var _pvp_score_label: Label = $UI/PvPScoreLabel
+@onready var _map_select: OptionButton = $UI/NetworkPanel/VBox/MapRow/MapSelect
 
 
 func _ready() -> void:
@@ -63,6 +77,9 @@ func _ready() -> void:
 	_back_button.pressed.connect(_show_start_menu)
 	_host_button.pressed.connect(_host_game)
 	_join_button.pressed.connect(_join_game)
+	_map_select.add_item("废弃大厅（小型）")
+	_map_select.add_item("大型 PvP 竞技场")
+	_map_select.selected = 1
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	multiplayer.connected_to_server.connect(_on_connected_to_server)
@@ -144,6 +161,8 @@ func _host_game() -> void:
 	_network_panel.visible = false
 	_set_game_active(true)
 	_set_pvp_mode(true)
+	_multiplayer_map = MAP_HALL if _map_select.selected == 0 else MAP_ARENA
+	_apply_multiplayer_map.rpc(_multiplayer_map)
 	_host_button.disabled = true
 	_join_button.disabled = true
 
@@ -191,19 +210,6 @@ func _server_port_from_args() -> int:
 
 func _set_pvp_mode(enabled: bool) -> void:
 	_pvp_mode = enabled
-	$PvPMap.visible = enabled
-	for collision in $PvPMap.get_children():
-		if collision is StaticBody2D:
-			var shape := collision.get_node_or_null("CollisionShape2D") as CollisionShape2D
-			if is_instance_valid(shape):
-				shape.disabled = not enabled
-		elif collision is Area2D:
-			(collision as Area2D).monitoring = enabled
-			(collision as Area2D).monitorable = enabled
-	$PlatformLeft.visible = not enabled
-	$PlatformRight.visible = not enabled
-	$PlatformLeft/CollisionShape2D.disabled = enabled
-	$PlatformRight/CollisionShape2D.disabled = enabled
 	if is_instance_valid(_current_enemy):
 		_current_enemy.visible = not enabled
 		_current_enemy.set_physics_process(not enabled)
@@ -212,9 +218,11 @@ func _set_pvp_mode(enabled: bool) -> void:
 	for node in get_tree().get_nodes_in_group("player"):
 		(node as Player).set_pvp_enabled(enabled)
 	if enabled:
-		_room_title("PvP 竞技场")
+		_apply_multiplayer_map(_multiplayer_map)
 		_update_pvp_scoreboard()
 	else:
+		_set_arena_enabled(false)
+		_set_hall_enabled(true)
 		_room_title("第一战斗房间 · 废弃大厅")
 
 
@@ -240,6 +248,11 @@ func _on_peer_connected(peer_id: int) -> void:
 	for existing_id in _network_players:
 		_spawn_network_player.rpc_id(peer_id, existing_id)
 	_spawn_network_player.rpc(peer_id)
+	_apply_multiplayer_map.rpc_id(peer_id, _multiplayer_map)
+	for existing_id in _network_players:
+		var existing := get_node_or_null("Player_%d" % existing_id) as Player
+		if is_instance_valid(existing):
+			_sync_body_state.rpc_id(peer_id, existing_id, existing.get_body_state(), 0)
 
 
 func _on_peer_disconnected(peer_id: int) -> void:
@@ -253,7 +266,7 @@ func _spawn_network_player(peer_id: int) -> void:
 		return
 	var player := PLAYER_SCENE.instantiate() as Player
 	player.name = "Player_%d" % peer_id
-	player.position = Vector2(170 + (_network_players.size() % 4) * 54, 610)
+	player.position = _spawn_for_peer(peer_id)
 	add_child(player)
 	player.configure_network_authority(peer_id)
 	player.set_pvp_enabled(_pvp_mode)
@@ -263,6 +276,99 @@ func _spawn_network_player(peer_id: int) -> void:
 	if peer_id == multiplayer.get_unique_id():
 		_bind_local_player(player)
 	_network_status.text = "当前玩家：%d / 8" % _network_players.size()
+
+
+func request_pvp_damage(
+	attacker_peer_id: int,
+	victim_peer_id: int,
+	part_id: StringName,
+	damage: int,
+	damage_kind: String
+) -> void:
+	if not multiplayer.has_multiplayer_peer() or not _pvp_mode:
+		return
+	if multiplayer.is_server():
+		_server_apply_pvp_damage(attacker_peer_id, victim_peer_id, part_id, damage, damage_kind)
+	else:
+		_request_pvp_damage.rpc_id(1, attacker_peer_id, victim_peer_id, part_id, damage, damage_kind)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_pvp_damage(
+	attacker_peer_id: int,
+	victim_peer_id: int,
+	part_id: StringName,
+	damage: int,
+	damage_kind: String
+) -> void:
+	if not multiplayer.is_server() or multiplayer.get_remote_sender_id() != attacker_peer_id:
+		return
+	_server_apply_pvp_damage(attacker_peer_id, victim_peer_id, part_id, damage, damage_kind)
+
+
+func _server_apply_pvp_damage(
+	attacker_peer_id: int,
+	victim_peer_id: int,
+	part_id: StringName,
+	damage: int,
+	damage_kind: String
+) -> void:
+	if not _pvp_mode or _pvp_round_ending or damage <= 0 or damage > 20:
+		return
+	if damage_kind not in ["melee", "spell"]:
+		return
+	var attacker := get_node_or_null("Player_%d" % attacker_peer_id) as Player
+	var victim := get_node_or_null("Player_%d" % victim_peer_id) as Player
+	if not is_instance_valid(attacker) or not is_instance_valid(victim) or attacker == victim:
+		return
+	if damage_kind == "melee":
+		if not attacker.is_network_attack_active():
+			return
+		damage = attacker.get_network_melee_damage()
+	else:
+		damage = 2
+	var allowed_distance := 950.0 if damage_kind == "spell" else 190.0
+	if attacker.global_position.distance_to(victim.global_position) > allowed_distance:
+		return
+	if victim.server_apply_part_damage(part_id, damage, attacker.global_position, attacker_peer_id):
+		_sync_body_state.rpc(victim_peer_id, victim.get_body_state(), attacker_peer_id)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _sync_body_state(peer_id: int, state: Dictionary, attacker_peer_id: int) -> void:
+	var player := get_node_or_null("Player_%d" % peer_id) as Player
+	if is_instance_valid(player):
+		player.apply_body_state(state, attacker_peer_id)
+
+
+@rpc("authority", "call_local", "reliable")
+func _apply_multiplayer_map(map_id: String) -> void:
+	_multiplayer_map = MAP_HALL if map_id == MAP_HALL else MAP_ARENA
+	var arena_enabled := _pvp_mode and _multiplayer_map == MAP_ARENA
+	_set_arena_enabled(arena_enabled)
+	_set_hall_enabled(not arena_enabled)
+	_room_title("大型 PvP 竞技场" if arena_enabled else "PvP · 废弃大厅")
+	for node in get_tree().get_nodes_in_group("player"):
+		var player := node as Player
+		player.set_camera_world_width(2200 if arena_enabled else 1280)
+
+
+func _set_arena_enabled(enabled: bool) -> void:
+	$PvPMap.visible = enabled
+	for node in $PvPMap.get_children():
+		if node is StaticBody2D:
+			var shape := node.get_node_or_null("CollisionShape2D") as CollisionShape2D
+			if is_instance_valid(shape):
+				shape.disabled = not enabled
+
+
+func _set_hall_enabled(enabled: bool) -> void:
+	for node_name in ["Ground", "LeftWall", "RightWall", "PlatformLeft", "PlatformRight"]:
+		var body := get_node(node_name) as StaticBody2D
+		body.visible = enabled
+		var shape := body.get_node_or_null("CollisionShape2D") as CollisionShape2D
+		if is_instance_valid(shape):
+			shape.disabled = not enabled
 
 
 @rpc("authority", "call_local", "reliable")
@@ -442,7 +548,8 @@ func _update_pvp_scoreboard() -> void:
 
 
 func _spawn_for_peer(peer_id: int) -> Vector2:
-	return PVP_SPAWNS[(peer_id - 1) % PVP_SPAWNS.size()]
+	var spawns := HALL_SPAWNS if _multiplayer_map == MAP_HALL else PVP_SPAWNS
+	return spawns[(peer_id - 1) % spawns.size()]
 
 
 func get_pvp_kills(peer_id: int) -> int:

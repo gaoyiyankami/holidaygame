@@ -128,7 +128,10 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_animation_time += delta
 	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
-		global_position = global_position.lerp(_network_target_position, minf(delta * 14.0, 1.0))
+		if global_position.distance_to(_network_target_position) > 180.0:
+			global_position = _network_target_position
+		else:
+			global_position = global_position.lerp(_network_target_position, minf(delta * 22.0, 1.0))
 		velocity = _network_target_velocity
 		_visual.scale.x = _network_facing
 		_animate_body_parts()
@@ -154,7 +157,19 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_animate_body_parts()
 	if multiplayer.has_multiplayer_peer():
-		_receive_network_state.rpc(global_position, velocity, _visual.scale.x)
+		_receive_network_state.rpc(
+			global_position,
+			velocity,
+			_visual.scale.x,
+			int(_attack_phase),
+			int(_attack_kind),
+			_is_blocking,
+			_dash_timer > 0.0,
+			_animation_time,
+			_sword_pivot.rotation,
+			_slash_visual.visible,
+			_shield.rotation
+		)
 
 
 func _update_timers(delta: float) -> void:
@@ -335,27 +350,54 @@ func _damage_overlapping_enemies() -> void:
 
 func _apply_damage_to_part(part: BodyPart, damage: int) -> bool:
 	if part.actor is Player and multiplayer.has_multiplayer_peer():
-		(part.actor as Player).receive_network_part_damage.rpc(
-			part.part_id,
-			damage,
-			global_position,
-			multiplayer.get_unique_id()
-		)
+		request_network_damage(part.actor as Player, part.part_id, damage, "melee")
 		return true
 	return part.receive_damage(damage, global_position)
 
 
-@rpc("any_peer", "call_local", "reliable")
-func receive_network_part_damage(
+func request_network_damage(target: Player, part_id: StringName, damage: int, damage_kind: String) -> void:
+	var main := get_tree().current_scene
+	if not is_instance_valid(main) or not main.has_method("request_pvp_damage"):
+		return
+	main.request_pvp_damage(
+		get_multiplayer_authority(),
+		target.get_multiplayer_authority(),
+		part_id,
+		damage,
+		damage_kind
+	)
+
+
+func server_apply_part_damage(
 	part_id: StringName,
 	damage: int,
 	source_position: Vector2,
-	attacker_peer_id: int = 0
-) -> void:
+	attacker_peer_id: int
+) -> bool:
 	_last_attacker_peer_id = attacker_peer_id
 	var part: BodyPart = _parts.get(part_id)
 	if is_instance_valid(part):
-		part.receive_damage(damage, source_position)
+		return part.receive_damage(damage, source_position)
+	return false
+
+
+func get_body_state() -> Dictionary:
+	var state := {}
+	for id in _parts:
+		var part := _parts[id] as BodyPart
+		state[String(id)] = [part.health, part.max_health]
+	return state
+
+
+func apply_body_state(state: Dictionary, attacker_peer_id: int = 0) -> void:
+	_last_attacker_peer_id = attacker_peer_id
+	for id in state:
+		var part := _parts.get(StringName(id)) as BodyPart
+		var values: Array = state[id]
+		if is_instance_valid(part) and values.size() >= 2:
+			part.apply_authoritative_state(int(values[0]), int(values[1]))
+	_rebuild_part_effects()
+	_refresh_body_health()
 
 
 func configure_network_authority(peer_id: int) -> void:
@@ -363,6 +405,13 @@ func configure_network_authority(peer_id: int) -> void:
 	_camera.enabled = peer_id == multiplayer.get_unique_id()
 	if not is_multiplayer_authority():
 		_controls_enabled = false
+
+
+func set_camera_world_width(width: int) -> void:
+	_camera.limit_left = 0
+	_camera.limit_right = width
+	_camera.limit_top = 0
+	_camera.limit_bottom = 720
 
 
 func set_pvp_enabled(enabled: bool) -> void:
@@ -418,11 +467,48 @@ func set_king(enabled: bool) -> void:
 func _receive_network_state(
 	network_position: Vector2,
 	network_velocity: Vector2,
-	facing: float
+	facing: float,
+	attack_phase: int,
+	attack_kind: int,
+	blocking: bool,
+	dashing: bool,
+	animation_time: float,
+	sword_rotation: float,
+	slash_visible: bool,
+	shield_rotation: float
 ) -> void:
 	_network_target_position = network_position
 	_network_target_velocity = network_velocity
 	_network_facing = facing
+	_attack_phase = attack_phase as AttackPhase
+	_attack_kind = attack_kind as AttackKind
+	_is_blocking = blocking
+	_animation_time = animation_time
+	_sword_pivot.rotation = sword_rotation
+	_slash_visual.visible = slash_visible
+	_shield.rotation = shield_rotation
+	_shield.modulate = Color(0.55, 0.9, 1.0, 1.0) if blocking else Color.WHITE
+	_dash_visual.visible = dashing
+
+
+func is_network_attack_active() -> bool:
+	return _attack_phase == AttackPhase.ACTIVE
+
+
+func get_network_attack_kind() -> int:
+	return int(_attack_kind)
+
+
+func get_network_melee_damage() -> int:
+	var base_damage := attack_damage * (2 if _combo_step == 3 else 1)
+	match _attack_kind:
+		AttackKind.AIR:
+			base_damage = roundi(base_damage * 1.35)
+		AttackKind.DASH:
+			base_damage = roundi(base_damage * 1.6)
+		AttackKind.LOW:
+			base_damage = roundi(base_damage * 1.2)
+	return maxi(1, roundi(base_damage * _attack_damage_multiplier))
 
 
 func _get_windup_duration(step: int) -> float:
@@ -560,7 +646,7 @@ func _start_block() -> void:
 	_shield.rotation = deg_to_rad(-8.0)
 	_shield.modulate = Color(0.55, 0.9, 1.0, 1.0)
 	if multiplayer.has_multiplayer_peer():
-		_sync_combat_effect.rpc("block", 0, 0, _block_facing)
+		_sync_combat_effect.rpc("block_start", 0, 0, _block_facing)
 
 
 func _stop_block(start_cooldown: bool = true) -> void:
@@ -569,6 +655,8 @@ func _stop_block(start_cooldown: bool = true) -> void:
 	_block_timer = 0.0
 	if was_blocking and start_cooldown:
 		_block_cooldown_timer = block_cooldown
+	if was_blocking and multiplayer.has_multiplayer_peer() and is_multiplayer_authority():
+		_sync_combat_effect.rpc("block_stop", 0, 0, _block_facing)
 	if is_instance_valid(_shield):
 		_shield.rotation = 0.0
 		_shield.modulate = Color.WHITE
@@ -702,11 +790,23 @@ func _sync_combat_effect(action: String, step: int, kind: int, facing: float) ->
 		"attack":
 			_combo_step = step
 			_attack_kind = kind
-			_attack_phase = AttackPhase.ACTIVE
-			_slash_visual.visible = true
-			_play_sword_swing(step)
+			_attack_phase = AttackPhase.WINDUP
+			_slash_visual.visible = false
+			_play_sword_windup(step)
 			var tween := create_tween()
-			tween.tween_interval(0.16)
+			tween.tween_interval(_get_windup_duration(step) / _effective_attack_speed())
+			tween.tween_callback(func() -> void:
+				_attack_phase = AttackPhase.ACTIVE
+				_slash_visual.visible = true
+				_play_sword_swing(step)
+			)
+			tween.tween_interval(_get_active_duration(step) / _effective_attack_speed())
+			tween.tween_callback(func() -> void:
+				_attack_phase = AttackPhase.RECOVERY
+				_slash_visual.visible = false
+				_play_sword_recovery()
+			)
+			tween.tween_interval(_get_recovery_duration(step) / _effective_attack_speed())
 			tween.tween_callback(func() -> void:
 				_slash_visual.visible = false
 				_attack_phase = AttackPhase.NONE
@@ -724,15 +824,17 @@ func _sync_combat_effect(action: String, step: int, kind: int, facing: float) ->
 			var bolt := MAGIC_BOLT_SCENE.instantiate() as MagicBolt
 			bolt.caster = self
 			bolt.direction = facing
-			bolt.collision_mask = 0
+			if not multiplayer.is_server():
+				bolt.collision_mask = 0
 			bolt.global_position = global_position + Vector2(facing * 42.0, -10.0)
 			get_tree().current_scene.add_child(bolt)
-		"block":
+		"block_start":
 			_shield.visible = true
 			_shield.modulate = Color(0.55, 0.9, 1.0, 1.0)
-			var tween := create_tween()
-			tween.tween_interval(0.25)
-			tween.tween_callback(func() -> void: _shield.modulate = Color.WHITE)
+			_is_blocking = true
+		"block_stop":
+			_is_blocking = false
+			_shield.modulate = Color.WHITE
 
 
 func set_controls_enabled(enabled: bool) -> void:
@@ -821,6 +923,36 @@ func _on_part_destroyed(part: BodyPart) -> void:
 			_jump_multiplier *= 0.82
 			_dash_multiplier *= 0.7
 	_refresh_body_health()
+
+
+func _rebuild_part_effects() -> void:
+	_arm_attack_multiplier = 1.0
+	_attack_damage_multiplier = 1.0
+	_movement_multiplier = 1.0
+	_jump_multiplier = 1.0
+	_dash_multiplier = 1.0
+	_can_block = true
+	_shield.visible = true
+	_sword_pivot.position = Vector2(14, -8)
+	for id in ["left_arm", "right_arm"]:
+		var arm := _parts.get(id) as BodyPart
+		if is_instance_valid(arm) and arm.health <= 0:
+			_arm_attack_multiplier *= 0.72
+			_attack_damage_multiplier *= 0.72
+			_can_block = false
+			_shield.visible = false
+			if id == "right_arm":
+				_sword_pivot.position.x = -14.0
+	for id in ["left_leg", "right_leg"]:
+		var leg := _parts.get(id) as BodyPart
+		if is_instance_valid(leg) and leg.health <= 0:
+			_movement_multiplier *= 0.72
+			_jump_multiplier *= 0.82
+			_dash_multiplier *= 0.7
+	var head := _parts.get("head") as BodyPart
+	var torso := _parts.get("torso") as BodyPart
+	if not _is_dead and ((is_instance_valid(head) and head.health <= 0) or (is_instance_valid(torso) and torso.health <= 0)):
+		_die()
 
 
 func _refresh_body_health() -> void:
