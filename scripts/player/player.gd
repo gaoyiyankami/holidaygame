@@ -43,7 +43,7 @@ signal pvp_defeated(victim_peer_id: int, killer_peer_id: int)
 @export var max_mana: int = 100
 @export var spell_cost: int = 25
 @export var mana_regen_per_second: float = 7.0
-@export var health_regen_interval: float = 6.0
+@export var health_regen_interval_msec: int = 6000
 
 @export_category("Dash")
 @export var dash_speed: float = 760.0
@@ -489,7 +489,7 @@ func reset_for_pvp(spawn_position: Vector2) -> void:
 	spell_damage = 2
 	max_mana = 100
 	mana_regen_per_second = 7.0
-	health_regen_interval = 6.0
+	health_regen_interval_msec = 6000
 	_rapid_regeneration = false
 	_next_health_regen_msec = 0
 	dash_cooldown = 0.65
@@ -900,11 +900,11 @@ func _update_health_regeneration() -> void:
 		return
 	var now := Time.get_ticks_msec()
 	if _next_health_regen_msec <= 0:
-		_next_health_regen_msec = now + roundi(health_regen_interval * 1000.0)
+		_next_health_regen_msec = now + health_regen_interval_msec
 		return
 	if now < _next_health_regen_msec:
 		return
-	_next_health_regen_msec = now + roundi(health_regen_interval * 1000.0)
+	_next_health_regen_msec = now + health_regen_interval_msec
 	if multiplayer.has_multiplayer_peer():
 		var main := get_tree().current_scene
 		if is_instance_valid(main) and main.has_method("request_player_regeneration"):
@@ -940,7 +940,11 @@ func _show_heal_feedback(part: BodyPart) -> void:
 
 
 func get_health_regen_interval() -> float:
-	return health_regen_interval
+	return float(health_regen_interval_msec) / 1000.0
+
+
+func get_health_regen_interval_msec() -> int:
+	return health_regen_interval_msec
 
 
 func get_next_health_regen_msec() -> int:
@@ -1097,9 +1101,9 @@ func apply_upgrade(upgrade_id: String) -> void:
 		"rapid_regeneration":
 			if not _rapid_regeneration:
 				_rapid_regeneration = true
-				health_regen_interval = 3.0
+				health_regen_interval_msec = 3000
 				_next_health_regen_msec = Time.get_ticks_msec() \
-					+ roundi(health_regen_interval * 1000.0)
+					+ health_regen_interval_msec
 	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 

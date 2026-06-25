@@ -180,7 +180,7 @@ func _ready() -> void:
 		and player_arm.visible and player.can_block() and shield.visible
 	var regenerated_at_rest := player_arm.position.is_equal_approx(player_arm.rest_position) \
 		and is_zero_approx(player_arm.rotation)
-	player.set("health_regen_interval", 0.05)
+	player.set("health_regen_interval_msec", 50)
 	player.set("_next_health_regen_msec", 0)
 	var timed_regen_before := block_torso.health
 	block_torso.health = maxi(block_torso.health - 1, 0)
@@ -188,10 +188,10 @@ func _ready() -> void:
 	await get_tree().create_timer(0.07).timeout
 	var six_second_logic_works := block_torso.health == timed_regen_before
 	player.apply_upgrade("rapid_regeneration")
-	var rapid_regen_once := player.get_health_regen_interval() == 3.0 \
+	var rapid_regen_once := player.get_health_regen_interval_msec() == 3000 \
 		and player.has_rapid_regeneration()
 	player.apply_upgrade("rapid_regeneration")
-	var rapid_regen_not_stacked := player.get_health_regen_interval() == 3.0
+	var rapid_regen_not_stacked := player.get_health_regen_interval_msec() == 3000
 
 	var bolt_scene := load("res://scenes/combat/magic_bolt.tscn") as PackedScene
 	var attackable_bolt := bolt_scene.instantiate() as MagicBolt

@@ -395,7 +395,7 @@ func _server_regenerate_player(peer_id: int) -> void:
 	if not is_instance_valid(player):
 		return
 	var now := Time.get_ticks_msec()
-	var minimum_interval := int(player.get_health_regen_interval() * 1000.0) - 150
+	var minimum_interval := player.get_health_regen_interval_msec() - 150
 	if now - int(_last_regeneration_time.get(peer_id, -10000)) < minimum_interval:
 		return
 	_last_regeneration_time[peer_id] = now
