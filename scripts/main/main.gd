@@ -76,6 +76,12 @@ const UPGRADE_POOL := [
 @onready var _back_button: Button = $UI/NetworkPanel/VBox/BackButton
 @onready var _pvp_score_label: Label = $UI/PvPScoreLabel
 @onready var _map_select: OptionButton = $UI/NetworkPanel/VBox/MapRow/MapSelect
+@onready var _settings_button: Button = $UI/StartMenu/Margin/VBox/SettingsButton
+@onready var _settings_panel: PanelContainer = $UI/SettingsPanel
+@onready var _resolution_select: OptionButton = $UI/SettingsPanel/Margin/VBox/ResolutionRow/ResolutionSelect
+@onready var _refresh_select: OptionButton = $UI/SettingsPanel/Margin/VBox/RefreshRow/RefreshSelect
+@onready var _apply_settings_button: Button = $UI/SettingsPanel/Margin/VBox/ApplyButton
+@onready var _settings_back_button: Button = $UI/SettingsPanel/Margin/VBox/BackButton
 
 
 func _ready() -> void:
@@ -90,12 +96,22 @@ func _ready() -> void:
 	_health_button.pressed.connect(_choose_upgrade.bind(2))
 	_single_button.pressed.connect(_start_single_player)
 	_multi_button.pressed.connect(_show_multiplayer_menu)
+	_settings_button.pressed.connect(_show_settings_menu)
+	_apply_settings_button.pressed.connect(_apply_display_settings)
+	_settings_back_button.pressed.connect(_show_start_menu)
 	_back_button.pressed.connect(_show_start_menu)
 	_host_button.pressed.connect(_host_game)
 	_join_button.pressed.connect(_join_game)
 	_map_select.add_item("废弃大厅（小型）")
 	_map_select.add_item("大型 PvP 竞技场")
 	_map_select.selected = 1
+	_resolution_select.add_item("1920 × 1080（1080p）")
+	_resolution_select.add_item("2560 × 1440（2K）")
+	_refresh_select.add_item("60 Hz")
+	_refresh_select.add_item("120 Hz")
+	_refresh_select.add_item("240 Hz")
+	_resolution_select.selected = 0
+	_refresh_select.selected = 0
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	multiplayer.connected_to_server.connect(_on_connected_to_server)
@@ -109,6 +125,7 @@ func _ready() -> void:
 
 	_player.set_controls_enabled(false)
 	_network_panel.visible = false
+	_settings_panel.visible = false
 	_set_game_active(false)
 	_set_pvp_mode(false)
 	if _is_dedicated_server():
@@ -120,6 +137,7 @@ func _start_single_player() -> void:
 	_set_pvp_mode(false)
 	_start_menu.visible = false
 	_network_panel.visible = false
+	_settings_panel.visible = false
 	_set_game_active(true)
 	if not is_instance_valid(_current_enemy):
 		_spawn_next_enemy()
@@ -127,14 +145,44 @@ func _start_single_player() -> void:
 
 func _show_multiplayer_menu() -> void:
 	_start_menu.visible = false
+	_settings_panel.visible = false
 	_network_panel.visible = true
 	_set_game_active(false)
 
 
 func _show_start_menu() -> void:
 	_network_panel.visible = false
+	_settings_panel.visible = false
 	_start_menu.visible = true
 	_set_game_active(false)
+
+
+func _show_settings_menu() -> void:
+	_start_menu.visible = false
+	_network_panel.visible = false
+	_settings_panel.visible = true
+	_set_game_active(false)
+
+
+func _apply_display_settings() -> void:
+	var resolutions := [Vector2i(1920, 1080), Vector2i(2560, 1440)]
+	var refresh_limits := [60, 120, 240]
+	var resolution: Vector2i = resolutions[clampi(_resolution_select.selected, 0, 1)]
+	var fps_limit: int = refresh_limits[clampi(_refresh_select.selected, 0, 2)]
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_size(resolution)
+	var screen := DisplayServer.window_get_current_screen()
+	var screen_size := DisplayServer.screen_get_size(screen)
+	var window_position := (screen_size - resolution) / 2
+	DisplayServer.window_set_position(Vector2i(
+		maxi(window_position.x, 0),
+		maxi(window_position.y, 0)
+	))
+	Engine.max_fps = fps_limit
+	$UI/SettingsPanel/Margin/VBox/Status.text = "已应用：%s，%d Hz 帧率上限" % [
+		"2K" if resolution.x == 2560 else "1080p",
+		fps_limit,
+	]
 
 
 func _set_game_active(active: bool) -> void:

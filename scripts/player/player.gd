@@ -66,7 +66,7 @@ var _gravity: float = 1600.0
 var _health: int
 var _mana: int
 var _mana_regen_buffer: float = 0.0
-var _health_regen_timer: float = 0.0
+var _next_health_regen_msec: int = 0
 var _rapid_regeneration: bool = false
 var _coyote_timer: float = 0.0
 var _jump_buffer_timer: float = 0.0
@@ -145,7 +145,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_regenerate_mana(delta)
-	_update_health_regeneration(delta)
+	_update_health_regeneration()
 	_update_timers(delta)
 	_update_block()
 	if _dash_timer > 0.0:
@@ -488,7 +488,7 @@ func reset_for_pvp(spawn_position: Vector2) -> void:
 	mana_regen_per_second = 7.0
 	health_regen_interval = 6.0
 	_rapid_regeneration = false
-	_health_regen_timer = 0.0
+	_next_health_regen_msec = 0
 	dash_cooldown = 0.65
 	_attack_area.scale.x = 1.0
 	_can_block = true
@@ -888,16 +888,20 @@ func get_health() -> int:
 	return _health
 
 
-func _update_health_regeneration(delta: float) -> void:
+func _update_health_regeneration() -> void:
 	if _is_dead:
+		_next_health_regen_msec = 0
 		return
 	if _health >= max_health:
-		_health_regen_timer = 0.0
+		_next_health_regen_msec = 0
 		return
-	_health_regen_timer += delta
-	if _health_regen_timer < health_regen_interval:
+	var now := Time.get_ticks_msec()
+	if _next_health_regen_msec <= 0:
+		_next_health_regen_msec = now + roundi(health_regen_interval * 1000.0)
 		return
-	_health_regen_timer -= health_regen_interval
+	if now < _next_health_regen_msec:
+		return
+	_next_health_regen_msec = now + roundi(health_regen_interval * 1000.0)
 	if multiplayer.has_multiplayer_peer():
 		var main := get_tree().current_scene
 		if is_instance_valid(main) and main.has_method("request_player_regeneration"):
@@ -921,6 +925,10 @@ func heal_next_body_part() -> bool:
 
 func get_health_regen_interval() -> float:
 	return health_regen_interval
+
+
+func get_next_health_regen_msec() -> int:
+	return _next_health_regen_msec
 
 
 func has_rapid_regeneration() -> bool:
@@ -1074,7 +1082,8 @@ func apply_upgrade(upgrade_id: String) -> void:
 			if not _rapid_regeneration:
 				_rapid_regeneration = true
 				health_regen_interval = 3.0
-				_health_regen_timer = 0.0
+				_next_health_regen_msec = Time.get_ticks_msec() \
+					+ roundi(health_regen_interval * 1000.0)
 	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 

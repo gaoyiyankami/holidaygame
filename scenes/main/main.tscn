@@ -431,9 +431,9 @@ theme_override_font_sizes/font_size = 20
 
 [node name="StartMenu" type="PanelContainer" parent="UI"]
 offset_left = 390.0
-offset_top = 155.0
+offset_top = 105.0
 offset_right = 890.0
-offset_bottom = 565.0
+offset_bottom = 615.0
 theme_override_styles/panel = SubResource("StyleBox_upgrade")
 
 [node name="Margin" type="MarginContainer" parent="UI/StartMenu"]
@@ -465,6 +465,65 @@ theme_override_font_sizes/font_size = 24
 custom_minimum_size = Vector2(0, 70)
 text = "多人游戏"
 theme_override_font_sizes/font_size = 24
+
+[node name="SettingsButton" type="Button" parent="UI/StartMenu/Margin/VBox"]
+custom_minimum_size = Vector2(0, 70)
+text = "设置"
+theme_override_font_sizes/font_size = 24
+
+[node name="SettingsPanel" type="PanelContainer" parent="UI"]
+visible = false
+offset_left = 365.0
+offset_top = 120.0
+offset_right = 915.0
+offset_bottom = 600.0
+theme_override_styles/panel = SubResource("StyleBox_upgrade")
+
+[node name="Margin" type="MarginContainer" parent="UI/SettingsPanel"]
+theme_override_constants/margin_left = 45
+theme_override_constants/margin_top = 35
+theme_override_constants/margin_right = 45
+theme_override_constants/margin_bottom = 35
+
+[node name="VBox" type="VBoxContainer" parent="UI/SettingsPanel/Margin"]
+theme_override_constants/separation = 24
+
+[node name="Title" type="Label" parent="UI/SettingsPanel/Margin/VBox"]
+text = "显示设置"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 32
+
+[node name="ResolutionRow" type="HBoxContainer" parent="UI/SettingsPanel/Margin/VBox"]
+
+[node name="Label" type="Label" parent="UI/SettingsPanel/Margin/VBox/ResolutionRow"]
+text = "分辨率"
+custom_minimum_size = Vector2(110, 50)
+
+[node name="ResolutionSelect" type="OptionButton" parent="UI/SettingsPanel/Margin/VBox/ResolutionRow"]
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 50)
+
+[node name="RefreshRow" type="HBoxContainer" parent="UI/SettingsPanel/Margin/VBox"]
+
+[node name="Label" type="Label" parent="UI/SettingsPanel/Margin/VBox/RefreshRow"]
+text = "刷新率"
+custom_minimum_size = Vector2(110, 50)
+
+[node name="RefreshSelect" type="OptionButton" parent="UI/SettingsPanel/Margin/VBox/RefreshRow"]
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 50)
+
+[node name="Status" type="Label" parent="UI/SettingsPanel/Margin/VBox"]
+text = "刷新率选项会设置游戏帧率上限"
+horizontal_alignment = 1
+
+[node name="ApplyButton" type="Button" parent="UI/SettingsPanel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 60)
+text = "应用设置"
+
+[node name="BackButton" type="Button" parent="UI/SettingsPanel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 55)
+text = "返回主菜单"
 
 [node name="StatusLabel" type="Label" parent="UI"]
 visible = false

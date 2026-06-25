@@ -11,6 +11,15 @@ func _ready() -> void:
 		and not main.get_node("HallMap").visible \
 		and not main.get_node("PvPMap").visible \
 		and main.get_node_or_null("TrainingDummy") == null
+	main.call("_show_settings_menu")
+	var settings_page_ready: bool = main.get_node("UI/SettingsPanel").visible \
+		and not main.get_node("UI/StartMenu").visible \
+		and main.get_node("UI/SettingsPanel/Margin/VBox/ResolutionRow/ResolutionSelect").item_count == 2 \
+		and main.get_node("UI/SettingsPanel/Margin/VBox/RefreshRow/RefreshSelect").item_count == 3
+	main.get_node("UI/SettingsPanel/Margin/VBox/RefreshRow/RefreshSelect").selected = 1
+	main.call("_apply_display_settings")
+	var refresh_setting_applied := Engine.max_fps == 120
+	main.call("_show_start_menu")
 	main.call("_show_multiplayer_menu")
 	var separate_network_page: bool = not main.get_node("UI/StartMenu").visible \
 		and main.get_node("UI/NetworkPanel").visible \
@@ -150,9 +159,10 @@ func _ready() -> void:
 	var eight_kills_wins := main.is_pvp_round_ending() \
 		and host_player.get_node("KingLabel").visible
 	var world_visible_after_start: bool = main.get_node("Player_1").visible
-	print("Network host test: menu=%s clean_menu=%s port=%s hidden=%s page=%s peer=%s player=%s map=%s selector=%s large=%s hall_off=%s arena_on=%s no_traps=%s top=%s visible=%s damage=%s green=%s red=%s magic_guard=%s perfect=%s clash=%s reject=%s limb=%s effect=%s upgrade=%s reset=%s win=%s" % [
+	print("Network host test: menu=%s clean_menu=%s settings=%s port=%s hidden=%s page=%s peer=%s player=%s map=%s selector=%s large=%s hall_off=%s arena_on=%s no_traps=%s top=%s visible=%s damage=%s green=%s red=%s magic_guard=%s perfect=%s clash=%s reject=%s limb=%s effect=%s upgrade=%s reset=%s win=%s" % [
 		menu_visible,
 		no_world_on_menu,
+		settings_page_ready and refresh_setting_applied,
 		port_available,
 		world_hidden_before_start,
 		separate_network_page,
@@ -182,6 +192,7 @@ func _ready() -> void:
 	])
 	multiplayer.multiplayer_peer = null
 	get_tree().quit(0 if menu_visible and no_world_on_menu \
+		and settings_page_ready and refresh_setting_applied \
 		and port_available and world_hidden_before_start \
 		and separate_network_page and peer_ready and player_ready and pvp_map_ready \
 		and map_selector_ready and arena_is_large and hall_hidden_in_arena \

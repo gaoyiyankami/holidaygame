@@ -179,7 +179,7 @@ func _ready() -> void:
 	player.call("heal_next_body_part")
 	var normal_heal_order := block_torso.health == torso_regen_before + 1
 	player.set("health_regen_interval", 0.05)
-	player.set("_health_regen_timer", 0.0)
+	player.set("_next_health_regen_msec", 0)
 	var timed_regen_before := block_torso.health
 	block_torso.health = maxi(block_torso.health - 1, 0)
 	player.call("_refresh_body_health")
