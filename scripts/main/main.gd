@@ -169,20 +169,30 @@ func _apply_display_settings() -> void:
 	var refresh_limits := [60, 120, 240]
 	var resolution: Vector2i = resolutions[clampi(_resolution_select.selected, 0, 1)]
 	var fps_limit: int = refresh_limits[clampi(_refresh_select.selected, 0, 2)]
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-	DisplayServer.window_set_size(resolution)
-	var screen := DisplayServer.window_get_current_screen()
-	var screen_size := DisplayServer.screen_get_size(screen)
-	var window_position := (screen_size - resolution) / 2
-	DisplayServer.window_set_position(Vector2i(
-		maxi(window_position.x, 0),
-		maxi(window_position.y, 0)
-	))
+	var window := get_window()
+	window.mode = Window.MODE_WINDOWED
+	window.borderless = false
+	window.content_scale_size = Vector2i(1280, 720)
+	window.size = resolution
 	Engine.max_fps = fps_limit
-	$UI/SettingsPanel/Margin/VBox/Status.text = "已应用：%s，%d Hz 帧率上限" % [
-		"2K" if resolution.x == 2560 else "1080p",
+	await get_tree().process_frame
+	var actual_size := window.size
+	var screen := window.current_screen
+	var usable_rect := DisplayServer.screen_get_usable_rect(screen)
+	window.position = usable_rect.position + Vector2i(
+		maxi((usable_rect.size.x - actual_size.x) / 2, 0),
+		maxi((usable_rect.size.y - actual_size.y) / 2, 0)
+	)
+	var message := "实际窗口：%d × %d，帧率上限 %d" % [
+		actual_size.x,
+		actual_size.y,
 		fps_limit,
 	]
+	if actual_size != resolution:
+		message += "\n系统或编辑器限制了所选分辨率"
+	elif OS.has_feature("editor"):
+		message += "\n若画面未变化，请关闭 Godot 的“嵌入游戏”"
+	$UI/SettingsPanel/Margin/VBox/Status.text = message
 
 
 func _set_game_active(active: bool) -> void:

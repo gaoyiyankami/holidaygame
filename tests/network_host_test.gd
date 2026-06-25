@@ -18,6 +18,7 @@ func _ready() -> void:
 		and main.get_node("UI/SettingsPanel/Margin/VBox/RefreshRow/RefreshSelect").item_count == 3
 	main.get_node("UI/SettingsPanel/Margin/VBox/RefreshRow/RefreshSelect").selected = 1
 	main.call("_apply_display_settings")
+	await get_tree().process_frame
 	var refresh_setting_applied := Engine.max_fps == 120
 	main.call("_show_start_menu")
 	main.call("_show_multiplayer_menu")

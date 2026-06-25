@@ -514,7 +514,7 @@ size_flags_horizontal = 3
 custom_minimum_size = Vector2(0, 50)
 
 [node name="Status" type="Label" parent="UI/SettingsPanel/Margin/VBox"]
-text = "刷新率选项会设置游戏帧率上限"
+text = "刷新率选项会设置游戏帧率上限\n编辑器内嵌运行时窗口尺寸可能不会变化"
 horizontal_alignment = 1
 
 [node name="ApplyButton" type="Button" parent="UI/SettingsPanel/Margin/VBox"]
