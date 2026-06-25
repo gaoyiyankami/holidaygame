@@ -102,6 +102,20 @@ func increase_max_health(amount: int, heal_amount: int) -> void:
 	health_changed.emit(self)
 
 
+func heal_one() -> bool:
+	if health >= max_health:
+		return false
+	var was_destroyed := health <= 0
+	health += 1
+	if was_destroyed:
+		visible = true
+		_collision.set_deferred("disabled", false)
+		_visual.modulate = Color.WHITE
+	_update_status_dot()
+	health_changed.emit(self)
+	return true
+
+
 func reset_part() -> void:
 	max_health = base_max_health
 	health = max_health

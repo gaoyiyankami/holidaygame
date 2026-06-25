@@ -37,6 +37,7 @@ var _pvp_round_ending: bool = false
 var _multiplayer_map: String = MAP_ARENA
 var _offered_upgrades: Array[String] = []
 var _last_clash_time: Dictionary = {}
+var _last_regeneration_time: Dictionary = {}
 const UPGRADE_POOL := [
 	{"id": "attack", "title": "攻击力", "detail": "+1 伤害"},
 	{"id": "attack_speed", "title": "攻击速度", "detail": "+20% 攻速"},
@@ -313,6 +314,63 @@ func request_pvp_damage(
 		_server_apply_pvp_damage(attacker_peer_id, victim_peer_id, part_id, damage, damage_kind)
 	else:
 		_request_pvp_damage.rpc_id(1, attacker_peer_id, victim_peer_id, part_id, damage, damage_kind)
+
+
+func request_player_regeneration(peer_id: int) -> void:
+	if multiplayer.is_server():
+		_server_regenerate_player(peer_id)
+	else:
+		_request_player_regeneration.rpc_id(1, peer_id)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_player_regeneration(peer_id: int) -> void:
+	if not multiplayer.is_server() or multiplayer.get_remote_sender_id() != peer_id:
+		return
+	_server_regenerate_player(peer_id)
+
+
+func _server_regenerate_player(peer_id: int) -> void:
+	var player := get_node_or_null("Player_%d" % peer_id) as Player
+	var now := Time.get_ticks_msec()
+	if now - int(_last_regeneration_time.get(peer_id, -10000)) < 9500:
+		return
+	_last_regeneration_time[peer_id] = now
+	if is_instance_valid(player) and player.heal_next_body_part():
+		_sync_body_state.rpc(peer_id, player.get_body_state(), 0)
+
+
+func request_magic_bolt_destroy(attacker_peer_id: int, hit_position: Vector2) -> void:
+	if multiplayer.is_server():
+		_server_destroy_magic_bolt(attacker_peer_id, hit_position)
+	else:
+		_request_magic_bolt_destroy.rpc_id(1, attacker_peer_id, hit_position)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_magic_bolt_destroy(attacker_peer_id: int, hit_position: Vector2) -> void:
+	if multiplayer.is_server() and multiplayer.get_remote_sender_id() == attacker_peer_id:
+		_server_destroy_magic_bolt(attacker_peer_id, hit_position)
+
+
+func _server_destroy_magic_bolt(attacker_peer_id: int, hit_position: Vector2) -> void:
+	var attacker := get_node_or_null("Player_%d" % attacker_peer_id) as Player
+	if is_instance_valid(attacker) and attacker.can_destroy_magic_bolt_at(hit_position):
+		_destroy_magic_bolt_at.rpc(hit_position)
+
+
+@rpc("authority", "call_local", "reliable")
+func _destroy_magic_bolt_at(hit_position: Vector2) -> void:
+	var nearest: MagicBolt
+	var nearest_distance := 3600.0
+	for node in get_tree().get_nodes_in_group("magic_bolt"):
+		var bolt := node as MagicBolt
+		var distance := bolt.global_position.distance_squared_to(hit_position)
+		if distance < nearest_distance:
+			nearest = bolt
+			nearest_distance = distance
+	if is_instance_valid(nearest):
+		nearest.destroy_by_attack()
 
 
 @rpc("any_peer", "call_remote", "reliable")

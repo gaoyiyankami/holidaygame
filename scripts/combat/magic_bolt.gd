@@ -10,7 +10,20 @@ var caster: Node
 
 
 func _ready() -> void:
+	add_to_group("magic_bolt")
 	area_entered.connect(_on_area_entered)
+
+
+func destroy_by_attack() -> void:
+	set_deferred("monitoring", false)
+	collision_layer = 0
+	collision_mask = 0
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(self, "scale", Vector2(1.6, 0.15), 0.12)
+	tween.tween_property(self, "modulate:a", 0.0, 0.12)
+	tween.set_parallel(false)
+	tween.tween_callback(queue_free)
 
 
 func _physics_process(delta: float) -> void:

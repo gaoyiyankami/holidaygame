@@ -167,8 +167,31 @@ func _ready() -> void:
 	player.set("_invincibility_timer", 0.0)
 	player_arm.receive_damage(999, block_enemy.global_position)
 	var arm_break_disables_block := not shield.visible and not player.can_block()
+	var torso_regen_before := block_torso.health
+	player.call("heal_next_body_part")
+	var regen_torso_first := block_torso.health == torso_regen_before + 1 \
+		and player_arm.health == 0
+	block_torso.health = block_torso.max_health
+	var head_part := _find_part(player_parts, "head")
+	head_part.health = head_part.max_health
+	player.call("heal_next_body_part")
+	var limb_regenerated := player_arm.health == 1 and player_arm.visible \
+		and player.can_block() and shield.visible
 
-	print("Body parts test: map=%s base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s magic_guard=%s half=%s cooldown=%s arm_break=%s" % [
+	var bolt_scene := load("res://scenes/combat/magic_bolt.tscn") as PackedScene
+	var attackable_bolt := bolt_scene.instantiate() as MagicBolt
+	attackable_bolt.caster = block_enemy
+	$Main.add_child(attackable_bolt)
+	attackable_bolt.global_position = player.global_position + Vector2(62, -8)
+	await get_tree().physics_frame
+	player.call("_start_attack", 1)
+	player.call("_begin_active_attack")
+	await get_tree().physics_frame
+	player.call("_damage_overlapping_enemies")
+	await get_tree().create_timer(0.15).timeout
+	var bolt_destroyed_by_attack := not is_instance_valid(attackable_bolt)
+
+	print("Body parts test: map=%s base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s magic_guard=%s half=%s cooldown=%s arm_break=%s heal_order=%s regrow=%s bolt_cut=%s" % [
 		single_map_clean,
 		six_parts_created,
 		dots_centered,
@@ -186,6 +209,9 @@ func _ready() -> void:
 		half_damage,
 		block_cooldown_started,
 		arm_break_disables_block,
+		regen_torso_first,
+		limb_regenerated,
+		bolt_destroyed_by_attack,
 	])
 
 	var passed := single_map_clean and six_parts_created and dots_centered \
@@ -197,7 +223,8 @@ func _ready() -> void:
 		and low_attack_worked and spell_worked and mana_regenerated \
 		and perfect_blocked and blocking_immune_to_magic \
 		and half_damage and block_cooldown_started \
-		and arm_break_disables_block
+		and arm_break_disables_block and regen_torso_first \
+		and limb_regenerated and bolt_destroyed_by_attack
 	get_tree().quit(0 if passed else 1)
 
 

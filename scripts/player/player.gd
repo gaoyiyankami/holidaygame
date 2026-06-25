@@ -43,6 +43,7 @@ signal pvp_defeated(victim_peer_id: int, killer_peer_id: int)
 @export var max_mana: int = 100
 @export var spell_cost: int = 25
 @export var mana_regen_per_second: float = 7.0
+@export var health_regen_interval: float = 10.0
 
 @export_category("Dash")
 @export var dash_speed: float = 760.0
@@ -65,6 +66,7 @@ var _gravity: float = 1600.0
 var _health: int
 var _mana: int
 var _mana_regen_buffer: float = 0.0
+var _health_regen_timer: float = 0.0
 var _coyote_timer: float = 0.0
 var _jump_buffer_timer: float = 0.0
 var _extra_jumps: int = 0
@@ -142,6 +144,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_regenerate_mana(delta)
+	_update_health_regeneration(delta)
 	_update_timers(delta)
 	_update_block()
 	if _dash_timer > 0.0:
@@ -330,6 +333,16 @@ func _finish_attack() -> void:
 
 
 func _damage_overlapping_enemies() -> void:
+	for area in _attack_area.get_overlapping_areas():
+		if area is MagicBolt:
+			var bolt := area as MagicBolt
+			if bolt.caster != self:
+				var main := get_tree().current_scene
+				if multiplayer.has_multiplayer_peer() and is_instance_valid(main) \
+					and main.has_method("request_magic_bolt_destroy"):
+					main.request_magic_bolt_destroy(get_multiplayer_authority(), bolt.global_position)
+				else:
+					bolt.destroy_by_attack()
 	var closest_by_actor: Dictionary = {}
 	for area in _attack_area.get_overlapping_areas():
 		if not (area is BodyPart):
@@ -544,6 +557,11 @@ func get_network_attack_kind() -> int:
 
 func get_attack_step() -> int:
 	return _combo_step
+
+
+func can_destroy_magic_bolt_at(hit_position: Vector2) -> bool:
+	return is_network_attack_active() \
+		and _attack_area.global_position.distance_to(hit_position) <= 100.0
 
 
 func has_double_jump_upgrade() -> bool:
@@ -864,6 +882,31 @@ func get_health() -> int:
 	return _health
 
 
+func _update_health_regeneration(delta: float) -> void:
+	if _is_dead:
+		return
+	_health_regen_timer += delta
+	if _health_regen_timer < health_regen_interval:
+		return
+	_health_regen_timer -= health_regen_interval
+	if multiplayer.has_multiplayer_peer():
+		var main := get_tree().current_scene
+		if is_instance_valid(main) and main.has_method("request_player_regeneration"):
+			main.request_player_regeneration(get_multiplayer_authority())
+	else:
+		heal_next_body_part()
+
+
+func heal_next_body_part() -> bool:
+	for id in ["torso", "head", "left_arm", "right_arm", "left_leg", "right_leg"]:
+		var part := _parts.get(id) as BodyPart
+		if is_instance_valid(part) and part.heal_one():
+			_rebuild_part_effects()
+			_refresh_body_health()
+			return true
+	return false
+
+
 func get_mana() -> int:
 	return _mana
 
@@ -942,6 +985,7 @@ func _sync_combat_effect(action: String, step: int, kind: int, facing: float) ->
 			bolt.damage = spell_damage
 			bolt.direction = facing
 			if not multiplayer.is_server():
+				bolt.collision_layer = 0
 				bolt.collision_mask = 0
 			bolt.global_position = global_position + Vector2(facing * 42.0, -10.0)
 			get_tree().current_scene.add_child(bolt)
