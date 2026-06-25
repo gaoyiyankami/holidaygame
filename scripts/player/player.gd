@@ -907,11 +907,14 @@ func _update_health_regeneration(delta: float) -> void:
 
 
 func heal_next_body_part() -> bool:
+	for id in ["left_arm", "right_arm", "left_leg", "right_leg"]:
+		var destroyed_part := _parts.get(id) as BodyPart
+		if is_instance_valid(destroyed_part) and destroyed_part.health <= 0 \
+			and destroyed_part.heal_one():
+			return true
 	for id in ["torso", "head", "left_arm", "right_arm", "left_leg", "right_leg"]:
 		var part := _parts.get(id) as BodyPart
 		if is_instance_valid(part) and part.heal_one():
-			_rebuild_part_effects()
-			_refresh_body_health()
 			return true
 	return false
 
@@ -1111,6 +1114,7 @@ func _add_body_part(
 	part.configure(self, id, label, hp, vital, part_size, part_position, color, layer)
 	part.health_changed.connect(_on_part_health_changed)
 	part.destroyed.connect(_on_part_destroyed)
+	part.regenerated.connect(_on_part_regenerated)
 	_parts[id] = part
 
 
@@ -1132,6 +1136,11 @@ func _on_part_destroyed(part: BodyPart) -> void:
 			_movement_multiplier *= 0.72
 			_jump_multiplier *= 0.82
 			_dash_multiplier *= 0.7
+	_refresh_body_health()
+
+
+func _on_part_regenerated(_part: BodyPart) -> void:
+	_rebuild_part_effects()
 	_refresh_body_health()
 
 

@@ -3,6 +3,7 @@ extends Area2D
 
 signal health_changed(part: BodyPart)
 signal destroyed(part: BodyPart)
+signal regenerated(part: BodyPart)
 
 var part_id: StringName
 var display_name: String
@@ -111,8 +112,12 @@ func heal_one() -> bool:
 		visible = true
 		_collision.set_deferred("disabled", false)
 		_visual.modulate = Color.WHITE
+		position = rest_position
+		rotation = rest_rotation
 	_update_status_dot()
 	health_changed.emit(self)
+	if was_destroyed:
+		regenerated.emit(self)
 	return true
 
 
@@ -127,6 +132,7 @@ func reset_part() -> void:
 
 
 func apply_authoritative_state(new_health: int, new_max_health: int) -> void:
+	var was_destroyed := health <= 0
 	max_health = maxi(new_max_health, 1)
 	health = clampi(new_health, 0, max_health)
 	var intact := health > 0
@@ -134,8 +140,13 @@ func apply_authoritative_state(new_health: int, new_max_health: int) -> void:
 	_collision.set_deferred("disabled", not intact)
 	if intact:
 		_visual.modulate = Color.WHITE
+		if was_destroyed:
+			position = rest_position
+			rotation = rest_rotation
 	_update_status_dot()
 	health_changed.emit(self)
+	if was_destroyed and intact:
+		regenerated.emit(self)
 
 
 func set_tint(color: Color) -> void:

@@ -169,14 +169,15 @@ func _ready() -> void:
 	var arm_break_disables_block := not shield.visible and not player.can_block()
 	var torso_regen_before := block_torso.health
 	player.call("heal_next_body_part")
-	var regen_torso_first := block_torso.health == torso_regen_before + 1 \
-		and player_arm.health == 0
-	block_torso.health = block_torso.max_health
-	var head_part := _find_part(player_parts, "head")
-	head_part.health = head_part.max_health
-	player.call("heal_next_body_part")
-	var limb_regenerated := player_arm.health == 1 and player_arm.visible \
+	var limb_regenerated_first := block_torso.health == torso_regen_before \
+		and player_arm.health == 1 and player_arm.visible \
 		and player.can_block() and shield.visible
+	var regenerated_at_rest := player_arm.position.is_equal_approx(player_arm.rest_position) \
+		and is_zero_approx(player_arm.rotation)
+	player_arm.health = player_arm.max_health
+	player.call("_refresh_body_health")
+	player.call("heal_next_body_part")
+	var normal_heal_order := block_torso.health == torso_regen_before + 1
 	player.set("health_regen_interval", 0.05)
 	player.set("_health_regen_timer", 0.0)
 	var timed_regen_before := block_torso.health
@@ -221,8 +222,8 @@ func _ready() -> void:
 		half_damage,
 		block_cooldown_started,
 		arm_break_disables_block,
-		regen_torso_first,
-		limb_regenerated,
+		normal_heal_order,
+		limb_regenerated_first and regenerated_at_rest,
 		six_second_logic_works,
 		rapid_regen_once and rapid_regen_not_stacked,
 		bolt_destroyed_by_attack,
@@ -237,8 +238,9 @@ func _ready() -> void:
 		and low_attack_worked and spell_worked and mana_regenerated \
 		and perfect_blocked and blocking_immune_to_magic \
 		and half_damage and block_cooldown_started \
-		and arm_break_disables_block and regen_torso_first \
-		and limb_regenerated and six_second_logic_works \
+		and arm_break_disables_block and normal_heal_order \
+		and limb_regenerated_first and regenerated_at_rest \
+		and six_second_logic_works \
 		and rapid_regen_once and rapid_regen_not_stacked \
 		and bolt_destroyed_by_attack
 	get_tree().quit(0 if passed else 1)
