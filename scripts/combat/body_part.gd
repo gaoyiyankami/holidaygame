@@ -159,6 +159,11 @@ func reset_tint() -> void:
 		_visual.modulate = Color.WHITE
 
 
+func set_art_visible(enabled: bool) -> void:
+	if is_instance_valid(_visual):
+		_visual.visible = enabled
+
+
 func animate_transform(offset: Vector2, angle: float, smoothness: float = 0.28) -> void:
 	if health <= 0:
 		return

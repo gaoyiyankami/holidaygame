@@ -43,6 +43,7 @@ var _player_position_history: Dictionary = {}
 var _last_regeneration_time: Dictionary = {}
 var _player_names: Dictionary = {}
 var _player_avatars: Dictionary = {}
+var _player_appearance_seeds: Dictionary = {}
 var _pending_pvp_upgrade_offers: Dictionary = {}
 var _pvp_upgrade_selection_active: bool = false
 var _selected_avatar_base64: String = ""
@@ -297,6 +298,8 @@ func _host_game() -> void:
 		return
 	multiplayer.multiplayer_peer = peer
 	_prepare_existing_player_for_network()
+	_player_appearance_seeds[1] = randi()
+	_player.set_character_appearance_seed(int(_player_appearance_seeds[1]))
 	_player_names[1] = _selected_player_name()
 	_player_avatars[1] = _selected_avatar_base64
 	_player.set_player_display_name(_player_names[1])
@@ -395,9 +398,15 @@ func _on_server_disconnected() -> void:
 func _on_peer_connected(peer_id: int) -> void:
 	if not multiplayer.is_server():
 		return
+	if not _player_appearance_seeds.has(peer_id):
+		_player_appearance_seeds[peer_id] = randi()
 	for existing_id in _network_players:
-		_spawn_network_player.rpc_id(peer_id, existing_id)
-	_spawn_network_player.rpc(peer_id)
+		_spawn_network_player.rpc_id(
+			peer_id,
+			existing_id,
+			int(_player_appearance_seeds.get(existing_id, existing_id))
+		)
+	_spawn_network_player.rpc(peer_id, int(_player_appearance_seeds[peer_id]))
 	_apply_multiplayer_map.rpc_id(peer_id, _multiplayer_map)
 	_sync_player_names.rpc_id(peer_id, _player_names)
 	_sync_player_avatars.rpc_id(peer_id, _player_avatars)
@@ -413,19 +422,27 @@ func _on_peer_disconnected(peer_id: int) -> void:
 
 
 @rpc("authority", "call_local", "reliable")
-func _spawn_network_player(peer_id: int) -> void:
+func _spawn_network_player(peer_id: int, appearance_seed: int = 0) -> void:
 	if _network_players.has(peer_id):
+		var existing := get_node_or_null("Player_%d" % peer_id) as Player
+		if is_instance_valid(existing):
+			existing.set_character_appearance_seed(
+				appearance_seed if appearance_seed != 0 else peer_id
+			)
+		_player_appearance_seeds[peer_id] = appearance_seed
 		return
 	var player := PLAYER_SCENE.instantiate() as Player
 	player.name = "Player_%d" % peer_id
 	player.position = _spawn_for_peer(peer_id)
 	add_child(player)
 	player.configure_network_authority(peer_id)
+	player.set_character_appearance_seed(appearance_seed if appearance_seed != 0 else peer_id)
 	player.set_pvp_enabled(_pvp_mode)
 	player.set_player_display_name(str(_player_names.get(peer_id, "玩家 %d" % peer_id)))
 	player.set_avatar_base64(str(_player_avatars.get(peer_id, "")))
 	player.pvp_defeated.connect(_on_pvp_player_defeated)
 	_network_players[peer_id] = true
+	_player_appearance_seeds[peer_id] = appearance_seed
 	_pvp_kills[peer_id] = 0
 	if peer_id == multiplayer.get_unique_id():
 		_bind_local_player(player)
@@ -1070,6 +1087,7 @@ func _remove_network_player(peer_id: int) -> void:
 	_network_players.erase(peer_id)
 	_player_names.erase(peer_id)
 	_player_avatars.erase(peer_id)
+	_player_appearance_seeds.erase(peer_id)
 	_pvp_kills.erase(peer_id)
 	_last_melee_swing.erase(peer_id)
 	_last_combat_effect.erase(peer_id)

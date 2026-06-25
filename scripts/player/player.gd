@@ -120,6 +120,40 @@ var _parts: Dictionary = {}
 var _sword_tween: Tween
 var _health_regen_timer: Timer
 var _applied_upgrade_count: int = 0
+var _pixel_character: Node2D
+var _pixel_layers: Array[Sprite2D] = []
+var _appearance_seed: int = 0
+var _pixel_frame: Vector2i = Vector2i.ZERO
+
+const CHARACTER_ASSET_ROOT := "res://assets/characters/gandalf/"
+const CHARACTER_FRAME_SIZE := Vector2i(80, 64)
+const MALE_UNDERWEAR := [
+	"Underwear.png", "Skyblue Underwear.png", "Red Underwear.png",
+	"Purple Underwear.png", "Orange Underwear.png", "Green Underwear.png",
+]
+const MALE_PANTS := [
+	"Pants.png", "Purple Pants.png", "Orange Pants.png", "Green Pants.png",
+	"Blue Pants.png",
+]
+const MALE_SHIRTS := [
+	"Shirt.png", "Shirt v2.png", "Purple Shirt v2.png", "orange Shirt v2.png",
+	"Green Shirt v2.png", "Blue Shirt v2.png",
+]
+const MALE_FOOTWEAR := ["Shoes.png", "Boots.png"]
+const FEMALE_UNDERWEAR := [
+	"Green Panties and Bra.png", "Blue Panties and Bra.png",
+	"Orange Panties and Bra.png", "Red Panties and Bra.png",
+	"Purple Panties and Bra.png", "Skyblue Panties and Bra.png",
+]
+const FEMALE_CORSETS := [
+	"Corset.png", "Corset v2.png", "Green Corset.png", "Green Corset v2.png",
+	"Blue Corset.png", "Blue Corset v2.png", "Purple Corset.png",
+	"Purple Corset v2.png", "Orange Corset.png", "Orange Corset v2.png",
+]
+const FEMALE_SOCKS := [
+	"Socks.png", "Green Socks.png", "Orange Socks.png", "Purple Socks.png",
+	"Red Socks.png", "Skyblue Socks.png",
+]
 
 const MAGIC_BOLT_SCENE := preload("res://scenes/combat/magic_bolt.tscn")
 
@@ -141,6 +175,8 @@ func _ready() -> void:
 	add_to_group("player")
 	_gravity = float(ProjectSettings.get_setting("physics/2d/default_gravity", 1600.0))
 	_create_body_parts()
+	_create_pixel_character()
+	set_character_appearance_seed(Time.get_ticks_usec())
 	_health_regen_timer = Timer.new()
 	_health_regen_timer.name = "HealthRegenerationTimer"
 	_health_regen_timer.wait_time = float(health_regen_interval_msec) / 1000.0
@@ -516,6 +552,80 @@ func apply_body_state(state: Dictionary, attacker_peer_id: int = 0) -> void:
 			part.apply_authoritative_state(int(values[0]), int(values[1]))
 	_rebuild_part_effects()
 	_refresh_body_health()
+
+
+func _create_pixel_character() -> void:
+	_pixel_character = Node2D.new()
+	_pixel_character.name = "PixelCharacter"
+	_pixel_character.position = Vector2(0, 6)
+	_pixel_character.scale = Vector2(1.35, 1.35)
+	_pixel_character.z_index = 2
+	_visual.add_child(_pixel_character)
+	_parts_root.z_index = 8
+	_shield.z_index = 6
+	_sword_pivot.z_index = 7
+	for index in 8:
+		var sprite := Sprite2D.new()
+		sprite.name = "Layer%d" % index
+		sprite.centered = true
+		sprite.region_enabled = true
+		sprite.region_rect = Rect2(Vector2.ZERO, CHARACTER_FRAME_SIZE)
+		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		sprite.z_index = index
+		_pixel_character.add_child(sprite)
+		_pixel_layers.append(sprite)
+	for part in _parts.values():
+		(part as BodyPart).set_art_visible(false)
+	for node_name in ["Hilt", "Guard", "Blade"]:
+		var weapon_art := _sword_pivot.get_node_or_null(node_name) as CanvasItem
+		if is_instance_valid(weapon_art):
+			weapon_art.visible = false
+
+
+func set_character_appearance_seed(seed_value: int) -> void:
+	_appearance_seed = seed_value if seed_value != 0 else 1
+	if not is_instance_valid(_pixel_character):
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _appearance_seed
+	var female := rng.randi_range(0, 1) == 1
+	var skin_index := rng.randi_range(1, 5)
+	var hair_index := rng.randi_range(1, 5)
+	var paths: Array[String] = []
+	if female:
+		paths = [
+			CHARACTER_ASSET_ROOT + "Character skin colors/Female Skin%d.png" % skin_index,
+			CHARACTER_ASSET_ROOT + "Female Clothing/" + _rng_pick(rng, FEMALE_UNDERWEAR),
+			CHARACTER_ASSET_ROOT + "Female Clothing/" + _rng_pick(rng, FEMALE_SOCKS),
+			CHARACTER_ASSET_ROOT + "Female Clothing/" + _rng_pick(rng, FEMALE_CORSETS),
+			CHARACTER_ASSET_ROOT + "Female Clothing/Skirt.png" if rng.randf() < 0.5 else "",
+			CHARACTER_ASSET_ROOT + "Female Clothing/Boots.png",
+			CHARACTER_ASSET_ROOT + "Female Hair/Female Hair%d.png" % hair_index,
+			CHARACTER_ASSET_ROOT + "Female Hand/Female Sword.png",
+		]
+	else:
+		paths = [
+			CHARACTER_ASSET_ROOT + "Character skin colors/Male Skin%d.png" % skin_index,
+			CHARACTER_ASSET_ROOT + "Male Clothing/" + _rng_pick(rng, MALE_UNDERWEAR),
+			CHARACTER_ASSET_ROOT + "Male Clothing/" + _rng_pick(rng, MALE_PANTS),
+			CHARACTER_ASSET_ROOT + "Male Clothing/" + _rng_pick(rng, MALE_SHIRTS),
+			"",
+			CHARACTER_ASSET_ROOT + "Male Clothing/" + _rng_pick(rng, MALE_FOOTWEAR),
+			CHARACTER_ASSET_ROOT + "Male Hair/Male Hair%d.png" % hair_index,
+			CHARACTER_ASSET_ROOT + "Male Hand/Male Sword.png",
+		]
+	for index in _pixel_layers.size():
+		var path := paths[index] if index < paths.size() else ""
+		_pixel_layers[index].texture = load(path) as Texture2D if not path.is_empty() else null
+	_update_pixel_frame(true)
+
+
+func _rng_pick(rng: RandomNumberGenerator, values: Array) -> String:
+	return str(values[rng.randi_range(0, values.size() - 1)])
+
+
+func get_character_appearance_seed() -> int:
+	return _appearance_seed
 
 
 func configure_network_authority(peer_id: int) -> void:
@@ -1005,6 +1115,10 @@ func on_body_part_damaged(part: BodyPart, _amount: int, source_position: Vector2
 	_dash_timer = 0.0
 	_slash_visual.visible = false
 	_dash_visual.visible = false
+	if is_instance_valid(_pixel_character):
+		_pixel_character.modulate = Color(1.0, 0.35, 0.35, 1.0)
+		var hurt_tween := create_tween()
+		hurt_tween.tween_property(_pixel_character, "modulate", Color.WHITE, 0.14)
 
 	var knockback_direction := signf(global_position.x - source_position.x)
 	if is_zero_approx(knockback_direction):
@@ -1306,6 +1420,14 @@ func _on_part_destroyed(part: BodyPart) -> void:
 			_movement_multiplier *= 0.72
 			_jump_multiplier *= 0.82
 			_dash_multiplier *= 0.7
+	if _pixel_layers.size() >= 8:
+		var left_arm := _parts.get("left_arm") as BodyPart
+		var right_arm := _parts.get("right_arm") as BodyPart
+		_pixel_layers[7].visible = (
+			is_instance_valid(left_arm) and left_arm.health > 0
+		) or (
+			is_instance_valid(right_arm) and right_arm.health > 0
+		)
 	_refresh_body_health()
 
 
@@ -1338,6 +1460,14 @@ func _rebuild_part_effects() -> void:
 			_movement_multiplier *= 0.72
 			_jump_multiplier *= 0.82
 			_dash_multiplier *= 0.7
+	if _pixel_layers.size() >= 8:
+		var left_arm := _parts.get("left_arm") as BodyPart
+		var right_arm := _parts.get("right_arm") as BodyPart
+		_pixel_layers[7].visible = (
+			is_instance_valid(left_arm) and left_arm.health > 0
+		) or (
+			is_instance_valid(right_arm) and right_arm.health > 0
+		)
 	var head := _parts.get("head") as BodyPart
 	var torso := _parts.get("torso") as BodyPart
 	if not _is_dead and ((is_instance_valid(head) and head.health <= 0) or (is_instance_valid(torso) and torso.health <= 0)):
@@ -1423,41 +1553,62 @@ func _effective_attack_speed() -> float:
 
 
 func _animate_body_parts() -> void:
-	var moving := absf(velocity.x) > 25.0 and is_on_floor()
-	var airborne := not is_on_floor()
-	var phase := _animation_time * 8.5
-	var step := sin(phase)
-	var breathe := sin(_animation_time * 2.2)
+	_update_pixel_frame()
+	for part in _parts.values():
+		(part as BodyPart).animate_transform(Vector2.ZERO, 0.0, 0.45)
 
-	_animate_part("torso", Vector2(0, breathe * 0.7), step * 0.02 if moving else 0.0)
-	_animate_part("head", Vector2(0, breathe * 0.85), 0.0)
 
-	if airborne:
-		_animate_part("left_arm", Vector2(-1, -2), 0.0)
-		_animate_part("right_arm", Vector2(1, -2), 0.0)
-		_animate_part("left_leg", Vector2(2, -3), 0.0)
-		_animate_part("right_leg", Vector2(-2, 1), 0.0)
-	elif moving:
-		_animate_part("left_arm", Vector2(step * 2.2, -step * 1.0), 0.0)
-		_animate_part("right_arm", Vector2(-step * 2.2, step * 1.0), 0.0)
-		_animate_part("left_leg", Vector2(step * 2.6, -maxf(step, 0.0) * 2.0), 0.0)
-		_animate_part("right_leg", Vector2(-step * 2.6, maxf(step, 0.0) * 2.0), 0.0)
-	else:
-		_animate_part("left_arm", Vector2.ZERO, breathe * 0.025)
-		_animate_part("right_arm", Vector2.ZERO, -breathe * 0.025)
-		_animate_part("left_leg", Vector2.ZERO, 0.0)
-		_animate_part("right_leg", Vector2.ZERO, 0.0)
-
-	if _attack_kind == AttackKind.LOW and _attack_phase != AttackPhase.NONE:
-		_animate_part("torso", Vector2(0, 7), 0.0)
-		_animate_part("head", Vector2(0, 7), 0.0)
-		_animate_part("left_leg", Vector2(-2, 4), 0.0)
-		_animate_part("right_leg", Vector2(2, 4), 0.0)
-
+func _update_pixel_frame(force: bool = false) -> void:
+	if _pixel_layers.is_empty():
+		return
+	var row := 0
+	var frame_count := 5
+	var fps := 6.0
+	if _is_dead:
+		row = 6
+		frame_count = 10
+		fps = 9.0
+	elif _attack_phase != AttackPhase.NONE:
+		row = 5
+		frame_count = 6
+		fps = 12.0 * _effective_attack_speed()
+	elif _is_blocking:
+		row = 5
+		frame_count = 2
+		fps = 3.0
+	elif not is_on_floor():
+		row = 3
+		frame_count = 4
+		fps = 7.0
+	elif absf(velocity.x) > 190.0:
+		row = 2
+		frame_count = 8
+		fps = 12.0
+	elif absf(velocity.x) > 18.0:
+		row = 1
+		frame_count = 8
+		fps = 9.0
+	var column := floori(_animation_time * fps) % frame_count
 	if _attack_phase != AttackPhase.NONE:
-		var attack_arm: BodyPart = _parts.get("right_arm")
-		if is_instance_valid(attack_arm) and attack_arm.health > 0:
-			attack_arm.animate_transform(Vector2(2, -2), _sword_pivot.rotation * 0.3, 0.45)
+		match _attack_phase:
+			AttackPhase.WINDUP:
+				column = 1
+			AttackPhase.ACTIVE:
+				column = 2 if _attack_kind != AttackKind.LOW else 3
+			AttackPhase.RECOVERY:
+				column = 4
+	if _is_blocking:
+		column = 4 + (floori(_animation_time * fps) % 2)
+	var next_frame := Vector2i(column, row)
+	if not force and next_frame == _pixel_frame:
+		return
+	_pixel_frame = next_frame
+	var region := Rect2(
+		Vector2(next_frame.x * CHARACTER_FRAME_SIZE.x, next_frame.y * CHARACTER_FRAME_SIZE.y),
+		CHARACTER_FRAME_SIZE
+	)
+	for sprite in _pixel_layers:
+		sprite.region_rect = region
 
 
 func _animate_part(id: StringName, offset: Vector2, angle: float) -> void:
@@ -1469,6 +1620,8 @@ func _animate_part(id: StringName, offset: Vector2, angle: float) -> void:
 func _set_parts_tint(color: Color) -> void:
 	for part in _parts.values():
 		(part as BodyPart).set_tint(color)
+	if is_instance_valid(_pixel_character):
+		_pixel_character.modulate = color
 
 
 func _die() -> void:
