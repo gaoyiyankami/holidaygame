@@ -105,6 +105,7 @@ var _network_target_position: Vector2
 var _network_target_velocity: Vector2
 var _network_facing: float = 1.0
 var _network_send_timer: float = 0.0
+var _network_attack_sequence: int = 0
 var _hit_targets: Dictionary = {}
 var _parts: Dictionary = {}
 var _sword_tween: Tween
@@ -320,6 +321,17 @@ func _begin_active_attack() -> void:
 	_attack_timer = _get_active_duration(_combo_step) / _effective_attack_speed()
 	_slash_visual.visible = true
 	_play_sword_swing(_combo_step)
+	if multiplayer.has_multiplayer_peer() and is_multiplayer_authority():
+		_network_attack_sequence += 1
+		var main := get_tree().current_scene
+		if is_instance_valid(main) and main.has_method("request_pvp_melee_swing"):
+			main.request_pvp_melee_swing(
+				get_multiplayer_authority(),
+				_network_attack_sequence,
+				int(_attack_kind),
+				_combo_step,
+				signf(_visual.scale.x)
+			)
 	if _attack_kind == AttackKind.AIR:
 		velocity.y = 220.0
 	elif _attack_kind == AttackKind.DASH:
@@ -388,7 +400,8 @@ func _damage_overlapping_enemies() -> void:
 
 func _apply_damage_to_part(part: BodyPart, damage: int) -> bool:
 	if part.actor is Player and multiplayer.has_multiplayer_peer():
-		request_network_damage(part.actor as Player, part.part_id, damage, "melee")
+		# PvP melee is resolved once per swing by the server. Client-side overlap
+		# is intentionally not used because remote proxies can be a frame behind.
 		return true
 	if part.actor.has_method("is_melee_attack_active") and part.actor.is_melee_attack_active() \
 		and _can_clash_with(part.actor):
@@ -498,7 +511,6 @@ func clear_input_state() -> void:
 	velocity.x = 0.0
 
 
-@rpc("any_peer", "call_local", "reliable")
 func apply_pvp_upgrade(upgrade_index: int) -> void:
 	var upgrades := ["attack", "attack_speed", "move_speed", "double_jump", "attack_range", "part_health", "magic_damage", "max_mana", "mana_regen", "dash_cooldown", "rapid_regeneration"]
 	var selected: String = upgrades[upgrade_index % upgrades.size()]
@@ -509,7 +521,6 @@ func apply_pvp_upgrade(upgrade_index: int) -> void:
 	apply_upgrade(selected)
 
 
-@rpc("any_peer", "call_local", "reliable")
 func reset_for_pvp(spawn_position: Vector2) -> void:
 	attack_damage = 3
 	move_speed = 300.0
@@ -555,7 +566,6 @@ func reset_for_pvp(spawn_position: Vector2) -> void:
 	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 
-@rpc("any_peer", "call_local", "reliable")
 func set_king(enabled: bool) -> void:
 	_king_label.visible = enabled
 
@@ -628,8 +638,12 @@ func _can_clash_with(other: Node) -> bool:
 
 
 func get_network_melee_damage() -> int:
-	var base_damage := attack_damage * (2 if _combo_step == 3 else 1)
-	match _attack_kind:
+	return get_melee_damage_for(int(_attack_kind), _combo_step)
+
+
+func get_melee_damage_for(kind: int, step: int) -> int:
+	var base_damage := attack_damage * (2 if step == 3 else 1)
+	match kind:
 		AttackKind.AIR:
 			base_damage = roundi(base_damage * 1.35)
 		AttackKind.DASH:
@@ -637,6 +651,33 @@ func get_network_melee_damage() -> int:
 		AttackKind.LOW:
 			base_damage = roundi(base_damage * 1.2)
 	return maxi(1, roundi(base_damage * _attack_damage_multiplier))
+
+
+func server_confirm_melee_swing(kind: int, step: int, facing: float) -> void:
+	_attack_kind = clampi(kind, AttackKind.NORMAL, AttackKind.LOW) as AttackKind
+	_combo_step = clampi(step, 1, 3)
+	_attack_phase = AttackPhase.ACTIVE
+	if not is_zero_approx(facing):
+		_visual.scale.x = signf(facing)
+
+
+func get_best_pvp_hit_part(hit_position: Vector2, low_attack: bool) -> StringName:
+	var preferred := ["left_leg", "right_leg"] if low_attack else [
+		"torso", "head", "left_arm", "right_arm", "left_leg", "right_leg"
+	]
+	var best_id: StringName = &""
+	var best_distance := INF
+	for id in preferred:
+		var part := _parts.get(id) as BodyPart
+		if not is_instance_valid(part) or part.health <= 0:
+			continue
+		var distance := part.global_position.distance_squared_to(hit_position)
+		if distance < best_distance:
+			best_distance = distance
+			best_id = StringName(id)
+	if best_id == &"" and low_attack:
+		return get_best_pvp_hit_part(hit_position, false)
+	return best_id
 
 
 func get_spell_damage() -> int:

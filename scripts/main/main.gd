@@ -37,6 +37,7 @@ var _pvp_round_ending: bool = false
 var _multiplayer_map: String = MAP_ARENA
 var _offered_upgrades: Array[String] = []
 var _last_clash_time: Dictionary = {}
+var _last_melee_swing: Dictionary = {}
 var _last_regeneration_time: Dictionary = {}
 var _player_names: Dictionary = {}
 var _player_avatars: Dictionary = {}
@@ -509,6 +510,98 @@ func request_pvp_damage(
 		_request_pvp_damage.rpc_id(1, attacker_peer_id, victim_peer_id, part_id, damage, damage_kind)
 
 
+func request_pvp_melee_swing(
+	attacker_peer_id: int,
+	attack_sequence: int,
+	attack_kind: int,
+	combo_step: int,
+	facing: float
+) -> void:
+	if not multiplayer.has_multiplayer_peer() or not _pvp_mode:
+		return
+	if multiplayer.is_server():
+		_server_resolve_pvp_melee_swing(
+			attacker_peer_id, attack_sequence, attack_kind, combo_step, facing
+		)
+	else:
+		_request_pvp_melee_swing.rpc_id(
+			1, attacker_peer_id, attack_sequence, attack_kind, combo_step, facing
+		)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_pvp_melee_swing(
+	attacker_peer_id: int,
+	attack_sequence: int,
+	attack_kind: int,
+	combo_step: int,
+	facing: float
+) -> void:
+	if not multiplayer.is_server() or multiplayer.get_remote_sender_id() != attacker_peer_id:
+		return
+	_server_resolve_pvp_melee_swing(
+		attacker_peer_id, attack_sequence, attack_kind, combo_step, facing
+	)
+
+
+func _server_resolve_pvp_melee_swing(
+	attacker_peer_id: int,
+	attack_sequence: int,
+	attack_kind: int,
+	combo_step: int,
+	facing: float
+) -> void:
+	if not _pvp_mode or _pvp_round_ending:
+		return
+	if attack_kind < Player.AttackKind.NORMAL or attack_kind > Player.AttackKind.LOW:
+		return
+	if combo_step < 1 or combo_step > 3 or is_zero_approx(facing):
+		return
+	var previous_sequence := int(_last_melee_swing.get(attacker_peer_id, -1))
+	if attack_sequence <= previous_sequence:
+		return
+	_last_melee_swing[attacker_peer_id] = attack_sequence
+	var attacker := get_node_or_null("Player_%d" % attacker_peer_id) as Player
+	if not is_instance_valid(attacker):
+		return
+	attacker.server_confirm_melee_swing(attack_kind, combo_step, facing)
+	var reach := 155.0
+	var vertical_reach := 92.0
+	match attack_kind:
+		Player.AttackKind.AIR:
+			reach = 170.0
+			vertical_reach = 145.0
+		Player.AttackKind.DASH:
+			reach = 235.0
+			vertical_reach = 105.0
+		Player.AttackKind.LOW:
+			reach = 175.0
+			vertical_reach = 105.0
+	var direction := signf(facing)
+	var damage := attacker.get_melee_damage_for(attack_kind, combo_step)
+	for victim_peer_id in _network_players:
+		if int(victim_peer_id) == attacker_peer_id:
+			continue
+		var victim := get_node_or_null("Player_%d" % victim_peer_id) as Player
+		if not is_instance_valid(victim):
+			continue
+		var offset := victim.global_position - attacker.global_position
+		var forward_distance := offset.x * direction
+		if forward_distance < -24.0 or forward_distance > reach \
+			or absf(offset.y) > vertical_reach:
+			continue
+		var low_attack := attack_kind == Player.AttackKind.LOW
+		var hit_position := attacker.global_position + Vector2(
+			direction * minf(maxf(forward_distance, 35.0), reach * 0.72),
+			30.0 if low_attack else clampf(offset.y, -35.0, 35.0)
+		)
+		var part_id := victim.get_best_pvp_hit_part(hit_position, low_attack)
+		if part_id != &"":
+			_server_apply_pvp_damage(
+				attacker_peer_id, int(victim_peer_id), part_id, damage, "melee"
+			)
+
+
 func request_player_regeneration(peer_id: int) -> void:
 	if multiplayer.is_server():
 		_server_regenerate_player(peer_id)
@@ -715,6 +808,7 @@ func _remove_network_player(peer_id: int) -> void:
 	_player_names.erase(peer_id)
 	_player_avatars.erase(peer_id)
 	_pvp_kills.erase(peer_id)
+	_last_melee_swing.erase(peer_id)
 	_update_pvp_scoreboard()
 	_network_status.text = "当前玩家：%d / 8" % _network_players.size()
 
@@ -834,13 +928,18 @@ func _on_pvp_player_defeated(victim_peer_id: int, killer_peer_id: int) -> void:
 		return
 	if killer_peer_id > 0 and killer_peer_id != victim_peer_id and _network_players.has(killer_peer_id):
 		_pvp_kills[killer_peer_id] = int(_pvp_kills.get(killer_peer_id, 0)) + 1
-		var killer := get_node_or_null("Player_%d" % killer_peer_id) as Player
-		if is_instance_valid(killer):
-			killer.apply_pvp_upgrade.rpc(int(_pvp_kills[killer_peer_id]) - 1)
+		_sync_pvp_upgrade.rpc(killer_peer_id, int(_pvp_kills[killer_peer_id]) - 1)
 	_sync_pvp_scores.rpc(_pvp_kills)
 	_respawn_pvp_player.rpc(victim_peer_id, _spawn_for_peer(victim_peer_id))
 	if int(_pvp_kills.get(killer_peer_id, 0)) >= PVP_KILLS_TO_WIN:
 		_finish_pvp_round(killer_peer_id)
+
+
+@rpc("authority", "call_local", "reliable")
+func _sync_pvp_upgrade(peer_id: int, upgrade_index: int) -> void:
+	var player := get_node_or_null("Player_%d" % peer_id) as Player
+	if is_instance_valid(player):
+		player.apply_pvp_upgrade(upgrade_index)
 
 
 func _finish_pvp_round(winner_peer_id: int) -> void:
