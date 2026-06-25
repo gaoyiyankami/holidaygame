@@ -177,6 +177,18 @@ func _ready() -> void:
 	player.call("heal_next_body_part")
 	var limb_regenerated := player_arm.health == 1 and player_arm.visible \
 		and player.can_block() and shield.visible
+	player.set("health_regen_interval", 0.05)
+	player.set("_health_regen_timer", 0.0)
+	var timed_regen_before := block_torso.health
+	block_torso.health = maxi(block_torso.health - 1, 0)
+	player.call("_refresh_body_health")
+	await get_tree().create_timer(0.07).timeout
+	var six_second_logic_works := block_torso.health == timed_regen_before
+	player.apply_upgrade("rapid_regeneration")
+	var rapid_regen_once := player.get_health_regen_interval() == 3.0 \
+		and player.has_rapid_regeneration()
+	player.apply_upgrade("rapid_regeneration")
+	var rapid_regen_not_stacked := player.get_health_regen_interval() == 3.0
 
 	var bolt_scene := load("res://scenes/combat/magic_bolt.tscn") as PackedScene
 	var attackable_bolt := bolt_scene.instantiate() as MagicBolt
@@ -191,7 +203,7 @@ func _ready() -> void:
 	await get_tree().create_timer(0.15).timeout
 	var bolt_destroyed_by_attack := not is_instance_valid(attackable_bolt)
 
-	print("Body parts test: map=%s base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s magic_guard=%s half=%s cooldown=%s arm_break=%s heal_order=%s regrow=%s bolt_cut=%s" % [
+	print("Body parts test: map=%s base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s magic_guard=%s half=%s cooldown=%s arm_break=%s heal_order=%s regrow=%s timed=%s rapid=%s bolt_cut=%s" % [
 		single_map_clean,
 		six_parts_created,
 		dots_centered,
@@ -211,6 +223,8 @@ func _ready() -> void:
 		arm_break_disables_block,
 		regen_torso_first,
 		limb_regenerated,
+		six_second_logic_works,
+		rapid_regen_once and rapid_regen_not_stacked,
 		bolt_destroyed_by_attack,
 	])
 
@@ -224,7 +238,9 @@ func _ready() -> void:
 		and perfect_blocked and blocking_immune_to_magic \
 		and half_damage and block_cooldown_started \
 		and arm_break_disables_block and regen_torso_first \
-		and limb_regenerated and bolt_destroyed_by_attack
+		and limb_regenerated and six_second_logic_works \
+		and rapid_regen_once and rapid_regen_not_stacked \
+		and bolt_destroyed_by_attack
 	get_tree().quit(0 if passed else 1)
 
 

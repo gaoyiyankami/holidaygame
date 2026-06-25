@@ -43,7 +43,7 @@ signal pvp_defeated(victim_peer_id: int, killer_peer_id: int)
 @export var max_mana: int = 100
 @export var spell_cost: int = 25
 @export var mana_regen_per_second: float = 7.0
-@export var health_regen_interval: float = 10.0
+@export var health_regen_interval: float = 6.0
 
 @export_category("Dash")
 @export var dash_speed: float = 760.0
@@ -67,6 +67,7 @@ var _health: int
 var _mana: int
 var _mana_regen_buffer: float = 0.0
 var _health_regen_timer: float = 0.0
+var _rapid_regeneration: bool = false
 var _coyote_timer: float = 0.0
 var _jump_buffer_timer: float = 0.0
 var _extra_jumps: int = 0
@@ -461,9 +462,11 @@ func set_pvp_enabled(enabled: bool) -> void:
 
 @rpc("any_peer", "call_local", "reliable")
 func apply_pvp_upgrade(upgrade_index: int) -> void:
-	var upgrades := ["attack", "attack_speed", "move_speed", "double_jump", "attack_range", "part_health", "magic_damage", "max_mana", "mana_regen", "dash_cooldown"]
+	var upgrades := ["attack", "attack_speed", "move_speed", "double_jump", "attack_range", "part_health", "magic_damage", "max_mana", "mana_regen", "dash_cooldown", "rapid_regeneration"]
 	var selected: String = upgrades[upgrade_index % upgrades.size()]
 	if selected == "double_jump" and has_double_jump_upgrade():
+		selected = upgrades[(upgrade_index + 1) % upgrades.size()]
+	if selected == "rapid_regeneration" and has_rapid_regeneration():
 		selected = upgrades[(upgrade_index + 1) % upgrades.size()]
 	apply_upgrade(selected)
 
@@ -483,6 +486,9 @@ func reset_for_pvp(spawn_position: Vector2) -> void:
 	spell_damage = 2
 	max_mana = 100
 	mana_regen_per_second = 7.0
+	health_regen_interval = 6.0
+	_rapid_regeneration = false
+	_health_regen_timer = 0.0
 	dash_cooldown = 0.65
 	_attack_area.scale.x = 1.0
 	_can_block = true
@@ -868,6 +874,7 @@ func on_body_part_damaged(part: BodyPart, _amount: int, source_position: Vector2
 	_dash_timer = 0.0
 	_slash_visual.visible = false
 	_dash_visual.visible = false
+	_health_regen_timer = 0.0
 
 	var knockback_direction := signf(global_position.x - source_position.x)
 	if is_zero_approx(knockback_direction):
@@ -884,6 +891,9 @@ func get_health() -> int:
 
 func _update_health_regeneration(delta: float) -> void:
 	if _is_dead:
+		return
+	if _health >= max_health:
+		_health_regen_timer = 0.0
 		return
 	_health_regen_timer += delta
 	if _health_regen_timer < health_regen_interval:
@@ -905,6 +915,14 @@ func heal_next_body_part() -> bool:
 			_refresh_body_health()
 			return true
 	return false
+
+
+func get_health_regen_interval() -> float:
+	return health_regen_interval
+
+
+func has_rapid_regeneration() -> bool:
+	return _rapid_regeneration
 
 
 func get_mana() -> int:
@@ -1050,6 +1068,11 @@ func apply_upgrade(upgrade_id: String) -> void:
 			mana_regen_per_second *= 1.5
 		"dash_cooldown":
 			dash_cooldown = maxf(0.25, dash_cooldown * 0.85)
+		"rapid_regeneration":
+			if not _rapid_regeneration:
+				_rapid_regeneration = true
+				health_regen_interval = 3.0
+				_health_regen_timer = 0.0
 	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 

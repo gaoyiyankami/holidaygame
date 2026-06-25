@@ -49,6 +49,7 @@ const UPGRADE_POOL := [
 	{"id": "max_mana", "title": "魔力扩容", "detail": "魔法上限 +20"},
 	{"id": "mana_regen", "title": "魔力循环", "detail": "回魔速度 +50%"},
 	{"id": "dash_cooldown", "title": "疾风步", "detail": "冲刺冷却 -15%"},
+	{"id": "rapid_regeneration", "title": "快速再生", "detail": "一次性：回血间隔变为 3 秒"},
 ]
 
 @onready var _player: Player = $Player
@@ -332,11 +333,14 @@ func _request_player_regeneration(peer_id: int) -> void:
 
 func _server_regenerate_player(peer_id: int) -> void:
 	var player := get_node_or_null("Player_%d" % peer_id) as Player
+	if not is_instance_valid(player):
+		return
 	var now := Time.get_ticks_msec()
-	if now - int(_last_regeneration_time.get(peer_id, -10000)) < 9500:
+	var minimum_interval := int(player.get_health_regen_interval() * 1000.0) - 150
+	if now - int(_last_regeneration_time.get(peer_id, -10000)) < minimum_interval:
 		return
 	_last_regeneration_time[peer_id] = now
-	if is_instance_valid(player) and player.heal_next_body_part():
+	if player.heal_next_body_part():
 		_sync_body_state.rpc(peer_id, player.get_body_state(), 0)
 
 
@@ -554,6 +558,8 @@ func _roll_upgrade_choices() -> void:
 	var pool := UPGRADE_POOL.duplicate()
 	if _player.has_double_jump_upgrade():
 		pool = pool.filter(func(choice: Dictionary) -> bool: return choice.id != "double_jump")
+	if _player.has_rapid_regeneration():
+		pool = pool.filter(func(choice: Dictionary) -> bool: return choice.id != "rapid_regeneration")
 	pool.shuffle()
 	_offered_upgrades.clear()
 	var buttons := [_attack_button, _speed_button, _health_button]
