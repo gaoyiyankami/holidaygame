@@ -60,8 +60,8 @@ func _ready() -> void:
 	var dash_iframe_worked := player.is_dash_invulnerable() \
 		and not damage_accepted and player_torso.health == player_torso_before
 
-	var left_wall_shape := $Main/LeftWall/CollisionShape2D.shape as RectangleShape2D
-	var right_wall_shape := $Main/RightWall/CollisionShape2D.shape as RectangleShape2D
+	var left_wall_shape := $Main/HallMap/LeftWall/CollisionShape2D.shape as RectangleShape2D
+	var right_wall_shape := $Main/HallMap/RightWall/CollisionShape2D.shape as RectangleShape2D
 	var room_walls_cover_height := left_wall_shape.size.y >= 720.0 \
 		and right_wall_shape.size.y >= 720.0
 

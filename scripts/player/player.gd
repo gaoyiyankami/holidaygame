@@ -971,13 +971,13 @@ func apply_attack_upgrade() -> void:
 
 
 func apply_attack_speed_upgrade() -> void:
-	_attack_speed_multiplier += 0.12
+	_attack_speed_multiplier += 0.20
 	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 
 func apply_max_health_upgrade() -> void:
 	for part in _parts.values():
-		(part as BodyPart).increase_max_health(1, 1)
+		(part as BodyPart).increase_max_health(2, 2)
 	_refresh_body_health()
 
 
@@ -988,24 +988,24 @@ func apply_upgrade(upgrade_id: String) -> void:
 		"attack_speed":
 			apply_attack_speed_upgrade()
 		"move_speed":
-			move_speed *= 1.15
+			move_speed *= 1.30
 		"double_jump":
 			_extra_jumps = maxi(_extra_jumps, 1)
 			_extra_jumps_left = _extra_jumps
 		"attack_range":
-			_attack_area.scale.x *= 1.12
+			_attack_area.scale.x *= 1.20
 		"part_health":
 			apply_max_health_upgrade()
 		"magic_damage":
 			spell_damage += 1
 		"max_mana":
-			max_mana += 15
-			_mana = mini(_mana + 15, max_mana)
+			max_mana += 20
+			_mana = mini(_mana + 20, max_mana)
 			mana_changed.emit(_mana, max_mana)
 		"mana_regen":
-			mana_regen_per_second *= 1.2
+			mana_regen_per_second *= 1.5
 		"dash_cooldown":
-			dash_cooldown = maxf(0.3, dash_cooldown * 0.9)
+			dash_cooldown = maxf(0.25, dash_cooldown * 0.85)
 	stats_changed.emit(attack_damage, get_attack_speed_bonus())
 
 

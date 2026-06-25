@@ -39,15 +39,15 @@ var _offered_upgrades: Array[String] = []
 var _last_clash_time: Dictionary = {}
 const UPGRADE_POOL := [
 	{"id": "attack", "title": "攻击力", "detail": "+1 伤害"},
-	{"id": "attack_speed", "title": "攻击速度", "detail": "+12% 攻速"},
-	{"id": "move_speed", "title": "移动速度", "detail": "+15% 移速"},
+	{"id": "attack_speed", "title": "攻击速度", "detail": "+20% 攻速"},
+	{"id": "move_speed", "title": "移动速度", "detail": "+30% 移速"},
 	{"id": "double_jump", "title": "二段跳", "detail": "获得空中追加跳跃"},
-	{"id": "attack_range", "title": "攻击范围", "detail": "+12% 剑击范围"},
-	{"id": "part_health", "title": "肢体强化", "detail": "每个部位生命 +1"},
+	{"id": "attack_range", "title": "攻击范围", "detail": "+20% 剑击范围"},
+	{"id": "part_health", "title": "肢体强化", "detail": "每个部位生命 +2"},
 	{"id": "magic_damage", "title": "魔法强化", "detail": "法术伤害 +1"},
-	{"id": "max_mana", "title": "魔力扩容", "detail": "魔法上限 +15"},
-	{"id": "mana_regen", "title": "魔力循环", "detail": "回魔速度 +20%"},
-	{"id": "dash_cooldown", "title": "疾风步", "detail": "冲刺冷却 -10%"},
+	{"id": "max_mana", "title": "魔力扩容", "detail": "魔法上限 +20"},
+	{"id": "mana_regen", "title": "魔力循环", "detail": "回魔速度 +50%"},
+	{"id": "dash_cooldown", "title": "疾风步", "detail": "冲刺冷却 -15%"},
 ]
 
 @onready var _player: Player = $Player
@@ -421,6 +421,8 @@ func _apply_multiplayer_map(map_id: String) -> void:
 	var arena_enabled := _pvp_mode and _multiplayer_map == MAP_ARENA
 	_set_arena_enabled(arena_enabled)
 	_set_hall_enabled(not arena_enabled)
+	$BackgroundLayer/Background.color = Color(0.11, 0.025, 0.045, 1.0) \
+		if arena_enabled else Color(0.055, 0.075, 0.12, 1.0)
 	_room_title("大型 PvP 竞技场" if arena_enabled else "PvP · 废弃大厅")
 	for node in get_tree().get_nodes_in_group("player"):
 		var player := node as Player
@@ -429,20 +431,17 @@ func _apply_multiplayer_map(map_id: String) -> void:
 
 func _set_arena_enabled(enabled: bool) -> void:
 	$PvPMap.visible = enabled
-	for node in $PvPMap.get_children():
-		if node is StaticBody2D:
-			var shape := node.get_node_or_null("CollisionShape2D") as CollisionShape2D
-			if is_instance_valid(shape):
-				shape.disabled = not enabled
+	_set_map_collisions($PvPMap, enabled)
 
 
 func _set_hall_enabled(enabled: bool) -> void:
-	for node_name in ["Ground", "LeftWall", "RightWall", "PlatformLeft", "PlatformRight"]:
-		var body := get_node(node_name) as StaticBody2D
-		body.visible = enabled
-		var shape := body.get_node_or_null("CollisionShape2D") as CollisionShape2D
-		if is_instance_valid(shape):
-			shape.disabled = not enabled
+	$HallMap.visible = enabled
+	_set_map_collisions($HallMap, enabled)
+
+
+func _set_map_collisions(map_root: Node, enabled: bool) -> void:
+	for node in map_root.find_children("*", "CollisionShape2D", true, false):
+		(node as CollisionShape2D).set_deferred("disabled", not enabled)
 
 
 @rpc("authority", "call_local", "reliable")

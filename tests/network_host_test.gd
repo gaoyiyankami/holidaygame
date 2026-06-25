@@ -21,6 +21,25 @@ func _ready() -> void:
 		"UI/NetworkPanel/VBox/MapRow/MapSelect"
 	).item_count == 2
 	var arena_is_large: bool = main.get_node("PvPMap/ArenaRightWall").position.x >= 2200.0
+	var hall_hidden_in_arena: bool = not main.get_node("HallMap").visible
+	var hall_collisions_disabled := true
+	for node in main.get_node("HallMap").find_children("*", "CollisionShape2D", true, false):
+		if not (node as CollisionShape2D).disabled:
+			hall_collisions_disabled = false
+	var arena_collisions_enabled := true
+	for node in main.get_node("PvPMap").find_children("*", "CollisionShape2D", true, false):
+		if (node as CollisionShape2D).disabled:
+			arena_collisions_enabled = false
+	main.call("_apply_multiplayer_map", "hall")
+	await get_tree().process_frame
+	var hall_switch_clean: bool = main.get_node("HallMap").visible \
+		and not main.get_node("PvPMap").visible
+	for node in main.get_node("HallMap").find_children("*", "CollisionShape2D", true, false):
+		hall_switch_clean = hall_switch_clean and not (node as CollisionShape2D).disabled
+	for node in main.get_node("PvPMap").find_children("*", "CollisionShape2D", true, false):
+		hall_switch_clean = hall_switch_clean and (node as CollisionShape2D).disabled
+	main.call("_apply_multiplayer_map", "arena")
+	await get_tree().process_frame
 	var traps_removed := main.get_node_or_null("PvPMap/LeftSpikes") == null \
 		and main.get_node_or_null("PvPMap/RightSpikes") == null
 	var body_health_at_top: bool = main.get_node("UI/BodyPartsPanel").position.y <= 10.0
@@ -127,7 +146,7 @@ func _ready() -> void:
 	var eight_kills_wins := main.is_pvp_round_ending() \
 		and host_player.get_node("KingLabel").visible
 	var world_visible_after_start: bool = main.get_node("Player_1").visible
-	print("Network host test: menu=%s port=%s hidden=%s page=%s peer=%s player=%s map=%s selector=%s large=%s no_traps=%s top=%s visible=%s damage=%s green=%s red=%s magic_guard=%s perfect=%s clash=%s reject=%s limb=%s effect=%s upgrade=%s reset=%s win=%s" % [
+	print("Network host test: menu=%s port=%s hidden=%s page=%s peer=%s player=%s map=%s selector=%s large=%s hall_off=%s arena_on=%s no_traps=%s top=%s visible=%s damage=%s green=%s red=%s magic_guard=%s perfect=%s clash=%s reject=%s limb=%s effect=%s upgrade=%s reset=%s win=%s" % [
 		menu_visible,
 		port_available,
 		world_hidden_before_start,
@@ -137,6 +156,8 @@ func _ready() -> void:
 		pvp_map_ready,
 		map_selector_ready,
 		arena_is_large,
+		hall_hidden_in_arena and hall_collisions_disabled,
+		arena_collisions_enabled,
 		traps_removed,
 		body_health_at_top,
 		world_visible_after_start,
@@ -157,7 +178,9 @@ func _ready() -> void:
 	multiplayer.multiplayer_peer = null
 	get_tree().quit(0 if menu_visible and port_available and world_hidden_before_start \
 		and separate_network_page and peer_ready and player_ready and pvp_map_ready \
-		and map_selector_ready and arena_is_large and traps_removed \
+		and map_selector_ready and arena_is_large and hall_hidden_in_arena \
+		and hall_collisions_disabled and arena_collisions_enabled \
+		and hall_switch_clean and traps_removed \
 		and body_health_at_top and world_visible_after_start \
 		and pvp_damage_synced and green_dot and red_dot and attack_effect_synced \
 		and guarding_blocks_magic and perfect_block_combat_lock \

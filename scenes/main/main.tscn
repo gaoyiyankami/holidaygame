@@ -87,16 +87,22 @@ offset_bottom = 720.0
 color = Color(0.055, 0.075, 0.12, 1)
 mouse_filter = 2
 
-[node name="Moon" type="Polygon2D" parent="."]
+[node name="HallMap" type="Node2D" parent="."]
+
+[node name="HallBackdrop" type="Polygon2D" parent="HallMap"]
+polygon = PackedVector2Array(0, 80, 1280, 80, 1280, 680, 0, 680)
+color = Color(0.045, 0.065, 0.105, 0.72)
+
+[node name="Moon" type="Polygon2D" parent="HallMap"]
 position = Vector2(1050, 125)
 polygon = PackedVector2Array(-44, -34, 0, -48, 44, -34, 54, 0, 44, 34, 0, 48, -44, 34, -54, 0)
 color = Color(0.78, 0.83, 0.92, 0.18)
 
-[node name="BackPillarLeft" type="Polygon2D" parent="."]
+[node name="BackPillarLeft" type="Polygon2D" parent="HallMap"]
 polygon = PackedVector2Array(70, 110, 142, 110, 142, 640, 70, 640)
 color = Color(0.11, 0.14, 0.2, 1)
 
-[node name="BackPillarRight" type="Polygon2D" parent="."]
+[node name="BackPillarRight" type="Polygon2D" parent="HallMap"]
 polygon = PackedVector2Array(1138, 110, 1210, 110, 1210, 640, 1138, 640)
 color = Color(0.11, 0.14, 0.2, 1)
 
@@ -110,50 +116,50 @@ horizontal_alignment = 1
 theme_override_colors/font_color = Color(0.54, 0.63, 0.75, 0.8)
 theme_override_font_sizes/font_size = 20
 
-[node name="Ground" type="StaticBody2D" parent="."]
+[node name="Ground" type="StaticBody2D" parent="HallMap"]
 position = Vector2(640, 680)
 collision_layer = 1
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Ground"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="HallMap/Ground"]
 shape = SubResource("RectangleShape_ground")
 
-[node name="Visual" type="Polygon2D" parent="Ground"]
+[node name="Visual" type="Polygon2D" parent="HallMap/Ground"]
 polygon = PackedVector2Array(-900, -40, 900, -40, 900, 40, -900, 40)
 color = Color(0.18, 0.23, 0.3, 1)
 
-[node name="LeftWall" type="StaticBody2D" parent="."]
+[node name="LeftWall" type="StaticBody2D" parent="HallMap"]
 position = Vector2(-12, 360)
 collision_layer = 1
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="LeftWall"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="HallMap/LeftWall"]
 shape = SubResource("RectangleShape_wall")
 
-[node name="RightWall" type="StaticBody2D" parent="."]
+[node name="RightWall" type="StaticBody2D" parent="HallMap"]
 position = Vector2(1292, 360)
 collision_layer = 1
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="RightWall"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="HallMap/RightWall"]
 shape = SubResource("RectangleShape_wall")
 
-[node name="PlatformLeft" type="StaticBody2D" parent="."]
+[node name="PlatformLeft" type="StaticBody2D" parent="HallMap"]
 position = Vector2(310, 520)
 collision_layer = 1
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="PlatformLeft"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="HallMap/PlatformLeft"]
 shape = SubResource("RectangleShape_platform")
 
-[node name="Visual" type="Polygon2D" parent="PlatformLeft"]
+[node name="Visual" type="Polygon2D" parent="HallMap/PlatformLeft"]
 polygon = PackedVector2Array(-140, -16, 140, -16, 140, 16, -140, 16)
 color = Color(0.29, 0.38, 0.47, 1)
 
-[node name="PlatformRight" type="StaticBody2D" parent="."]
+[node name="PlatformRight" type="StaticBody2D" parent="HallMap"]
 position = Vector2(840, 430)
 collision_layer = 1
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="PlatformRight"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="HallMap/PlatformRight"]
 shape = SubResource("RectangleShape_platform")
 
-[node name="Visual" type="Polygon2D" parent="PlatformRight"]
+[node name="Visual" type="Polygon2D" parent="HallMap/PlatformRight"]
 polygon = PackedVector2Array(-140, -16, 140, -16, 140, 16, -140, 16)
 color = Color(0.29, 0.38, 0.47, 1)
 
@@ -181,6 +187,10 @@ text = "KING'S ARENA"
 horizontal_alignment = 1
 theme_override_colors/font_color = Color(1, 0.56, 0.22, 0.9)
 theme_override_font_sizes/font_size = 34
+
+[node name="ArenaGlow" type="Polygon2D" parent="PvPMap"]
+polygon = PackedVector2Array(600, 610, 800, 180, 1400, 180, 1600, 610)
+color = Color(0.9, 0.12, 0.1, 0.08)
 
 [node name="ArenaGround" type="StaticBody2D" parent="PvPMap"]
 position = Vector2(1100, 680)
@@ -512,7 +522,7 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "攻击速度
 
-+12% 攻速"
++20% 攻速"
 theme_override_font_sizes/font_size = 22
 
 [node name="HealthButton" type="Button" parent="UI/UpgradePanel/Margin/VBox/Choices"]
