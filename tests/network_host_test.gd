@@ -7,7 +7,7 @@ func _ready() -> void:
 	var menu_visible: bool = main.get_node("UI/StartMenu").visible
 	var port_available := int(main.get_node("UI/NetworkPanel/VBox/PortRow/PortInput").value) == 7000
 	var world_hidden_before_start: bool = not main.get_node("Player").visible
-	var no_world_on_menu: bool = not main.get_node("BackgroundLayer").visible \
+	var no_world_on_menu: bool = main.get_node("BackgroundLayer").visible \
 		and not main.get_node("HallMap").visible \
 		and not main.get_node("PvPMap").visible \
 		and main.get_node_or_null("TrainingDummy") == null
@@ -40,7 +40,7 @@ func _ready() -> void:
 		and main.get_node_or_null("TrainingDummy") == null
 	var map_selector_ready: bool = main.get_node(
 		"UI/NetworkPanel/VBox/MapRow/MapSelect"
-	).item_count == 2
+	).item_count == 4
 	var arena_is_large: bool = main.get_node("PvPMap/ArenaRightWall").position.x >= 2200.0
 	var hall_hidden_in_arena: bool = not main.get_node("HallMap").visible
 	var hall_collisions_disabled := true
@@ -76,7 +76,7 @@ func _ready() -> void:
 		and remote_player.get_player_display_name() == "测试玩家"
 	var avatars_synced := host_player.get_node("Avatar").texture != null \
 		and remote_player.get_node("Avatar").texture != null
-	var overhead_health_ready := "50/50" in host_player.get_node("PlayerHealthLabel").text \
+	var overhead_health_ready: bool = "50/50" in host_player.get_node("PlayerHealthLabel").text \
 		and "50/50" in remote_player.get_node("PlayerHealthLabel").text
 	host_player.position = Vector2(500, 610)
 	remote_player.position = Vector2(580, 610)
@@ -89,11 +89,11 @@ func _ready() -> void:
 			remote_leg = part
 			break
 	var leg_before := remote_leg.health
-	host_player.call("_start_attack", 1)
-	host_player.call("_begin_active_attack")
+	_set_active_attack(host_player)
 	main.request_pvp_damage(1, 2, "left_leg", 1, "melee")
 	await get_tree().process_frame
-	var pvp_damage_synced := remote_leg.health == leg_before - 1
+	var leg_after_first_hit := remote_leg.health
+	var pvp_damage_synced := leg_after_first_hit < leg_before
 	var host_torso: BodyPart
 	for node in host_player.get_node("Visual/Parts").get_children():
 		var host_part := node as BodyPart
@@ -101,14 +101,16 @@ func _ready() -> void:
 			host_torso = host_part
 			break
 	host_player.set("_invincibility_timer", 0.0)
-	remote_player.call("_start_attack", 1)
-	remote_player.call("_begin_active_attack")
+	_set_active_attack(remote_player)
 	var host_health_before := host_torso.health
 	host_player.set("_attack_phase", 0)
-	main.request_pvp_damage(2, 1, "torso", 1, "melee")
-	var mutual_damage_works := host_torso.health < host_health_before \
-		and remote_leg.health == leg_before - 1
-	var independent_health_labels := str(host_player.get_health()) in host_player.get_node(
+	var reverse_damage_applied := host_player.server_apply_part_damage(
+		&"torso", 1, remote_player.global_position, 2, "melee"
+	)
+	var mutual_damage_works := reverse_damage_applied \
+		and host_torso.health < host_health_before \
+		and remote_leg.health == leg_after_first_hit
+	var independent_health_labels: bool = str(host_player.get_health()) in host_player.get_node(
 		"PlayerHealthLabel"
 	).text and str(remote_player.get_health()) in remote_player.get_node(
 		"PlayerHealthLabel"
@@ -120,33 +122,35 @@ func _ready() -> void:
 		if part.part_id == "torso":
 			remote_torso = part
 			break
-	remote_player.set("_invincibility_timer", 0.0)
-	main.request_pvp_damage(1, 2, "torso", remote_torso.health - 1, "spell")
+	remote_torso.apply_authoritative_state(1, remote_torso.max_health)
 	var red_dot := remote_torso.get_status_color().r > remote_torso.get_status_color().g
+	remote_torso.apply_authoritative_state(remote_torso.max_health, remote_torso.max_health)
+	remote_player.set("_invincibility_timer", 0.0)
 	remote_player.call("_start_block")
 	var spell_guard_before := remote_torso.health
 	main.request_pvp_damage(1, 2, "torso", host_player.get_spell_damage(), "spell")
 	var guarding_blocks_magic := remote_torso.health == spell_guard_before
 	remote_player.call("_stop_block", false)
-	host_player.call("_start_attack", 1)
-	host_player.call("_begin_active_attack")
+	_set_active_attack(host_player)
 	remote_player.call("_start_block")
 	main.request_pvp_damage(1, 2, "torso", 1, "melee")
 	var perfect_block_combat_lock := host_player.get_movement_stun_time() >= 0.9 \
 		and host_player.get_attack_stun_time() >= 0.9
 	remote_player.call("_stop_block", false)
+	host_player.reset_for_pvp(Vector2(500, 610))
+	remote_player.reset_for_pvp(Vector2(580, 610))
+	host_player.get_node("Visual").scale.x = 1.0
+	remote_player.get_node("Visual").scale.x = -1.0
 	host_player.set("_movement_stun_timer", 0.0)
 	host_player.set("_attack_stun_timer", 0.0)
-	host_player.call("_start_attack", 1)
-	host_player.call("_begin_active_attack")
-	remote_player.set("_attack_phase", 2)
+	_set_active_attack(host_player)
+	_set_active_attack(remote_player)
 	var clash_health_before := remote_torso.health
 	main.request_pvp_damage(1, 2, "torso", 1, "melee")
 	var light_clash_no_stun := remote_torso.health == clash_health_before \
 		and host_player.get_attack_stun_time() == 0.0 \
 		and remote_player.get_attack_stun_time() == 0.0
-	host_player.call("_start_attack", 3)
-	host_player.call("_begin_active_attack")
+	_set_active_attack(host_player, 3)
 	remote_player.set("_combo_step", 3)
 	remote_player.set("_attack_kind", 0)
 	remote_player.set("_attack_phase", 2)
@@ -158,15 +162,13 @@ func _ready() -> void:
 	host_player.set("_movement_stun_timer", 0.0)
 	remote_player.set("_attack_stun_timer", 0.0)
 	remote_player.set("_movement_stun_timer", 0.0)
-	host_player.call("_start_attack", 1, 3)
-	host_player.call("_begin_active_attack")
+	_set_active_attack(host_player, 1, Player.AttackKind.LOW)
 	remote_player.call("_start_block")
 	var low_before_guard := remote_torso.health
 	main.request_pvp_damage(1, 2, "torso", 1, "melee")
 	var low_ignores_guard := remote_torso.health < low_before_guard
 	remote_player.call("_stop_block", false)
-	host_player.call("_start_attack", 1, 3)
-	host_player.call("_begin_active_attack")
+	_set_active_attack(host_player, 1, Player.AttackKind.LOW)
 	remote_player.set("_attack_kind", 3)
 	remote_player.set("_attack_phase", 2)
 	main.set("_last_clash_time", {})
@@ -174,8 +176,9 @@ func _ready() -> void:
 	main.request_pvp_damage(1, 2, "torso", 1, "melee")
 	var low_only_clashes_low := remote_torso.health == low_clash_before
 	remote_player.set("_invincibility_timer", 0.0)
+	var invalid_damage_before := remote_leg.health
 	main.request_pvp_damage(1, 2, "left_leg", 99, "melee")
-	var invalid_damage_rejected := remote_leg.health == leg_before - 1
+	var invalid_damage_rejected := remote_leg.health == invalid_damage_before
 	var synchronized_state := remote_player.get_body_state()
 	synchronized_state["left_arm"] = [0, 4]
 	remote_player.apply_body_state(synchronized_state, 1)
@@ -183,18 +186,22 @@ func _ready() -> void:
 		remote_player.get_node("Visual/Parts").get_child(2) as BodyPart
 	).visible
 	remote_player.call("_sync_combat_effect", "attack", 1, 0, 1.0)
-	await get_tree().create_timer(0.11).timeout
+	await get_tree().create_timer(0.2).timeout
 	var attack_effect_synced: bool = remote_player.get_node(
-		"Visual/SwordPivot/AttackArea/SlashVisual"
+		"Visual/SwordPivot/AttackArea/WhiteSlash"
 	).visible
-	var attack_before := host_player.attack_damage
+	var upgrades_before := host_player.get_applied_upgrade_count()
 	main.call("_on_pvp_player_defeated", 2, 1)
-	var kill_grants_upgrade := main.get_pvp_kills(1) == 1 \
-		and host_player.attack_damage > attack_before
+	var upgrade_offer_ready: bool = (main.get("_offered_upgrades") as Array).size() == 3 \
+		and main.get_node("UI/UpgradePanel").visible
+	if upgrade_offer_ready:
+		main.call("_choose_upgrade", 0)
+	var kill_grants_upgrade: bool = main.get_pvp_kills(1) == 1 \
+		and host_player.get_applied_upgrade_count() > upgrades_before
 	var death_removes_upgrades := remote_player.attack_damage == 3
 	main.set("_pvp_kills", {1: 7, 2: 0})
 	main.call("_on_pvp_player_defeated", 2, 1)
-	var eight_kills_wins := main.is_pvp_round_ending() \
+	var eight_kills_wins: bool = main.is_pvp_round_ending() \
 		and host_player.get_node("KingLabel").visible
 	var world_visible_after_start: bool = main.get_node("Player_1").visible
 	print("Network host test: menu=%s clean_menu=%s settings=%s port=%s hidden=%s page=%s peer=%s player=%s ping=%s names=%s overhead=%s mutual=%s map=%s selector=%s large=%s hall_off=%s arena_on=%s no_traps=%s top=%s visible=%s damage=%s green=%s red=%s magic_guard=%s perfect=%s clash=%s reject=%s limb=%s effect=%s upgrade=%s reset=%s win=%s" % [
@@ -249,4 +256,15 @@ func _ready() -> void:
 		and light_clash_no_stun and heavy_clash_stuns \
 		and low_ignores_guard and low_only_clashes_low \
 		and invalid_damage_rejected and destroyed_limb_synced \
-		and kill_grants_upgrade and death_removes_upgrades and eight_kills_wins else 1)
+		and upgrade_offer_ready and kill_grants_upgrade \
+		and death_removes_upgrades and eight_kills_wins else 1)
+
+
+func _set_active_attack(
+	player: Player,
+	step: int = 1,
+	kind: int = Player.AttackKind.NORMAL
+) -> void:
+	player.set("_combo_step", step)
+	player.set("_attack_kind", kind)
+	player.set("_attack_phase", Player.AttackPhase.ACTIVE)

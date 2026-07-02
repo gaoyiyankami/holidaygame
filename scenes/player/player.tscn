@@ -28,7 +28,7 @@ polygon = PackedVector2Array(-92, -25, -20, -20, -20, 20, -92, 25, -58, 0)
 color = Color(0.2, 0.82, 1, 0.38)
 
 [node name="Shield" type="Node2D" parent="Visual"]
-position = Vector2(-25, -7)
+position = Vector2(25, -7)
 
 [node name="Outer" type="Polygon2D" parent="Visual/Shield"]
 polygon = PackedVector2Array(-13, -20, 13, -20, 17, -5, 11, 17, 0, 25, -11, 17, -17, -5)

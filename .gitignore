@@ -4,3 +4,10 @@
 export.cfg
 build/
 dist/
+tmp/
+/tmp_*.png
+/tmp_*.png.import
+/tmp_*.log
+/tmp_*.err
+/00151-*.png
+/00151-*.png.import

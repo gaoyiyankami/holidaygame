@@ -8,7 +8,7 @@ func _ready() -> void:
 
 	var player := $Main/Player as Player
 	var enemy := $Main/TrainingDummy as TrainingDummy
-	var single_map_clean := $Main/HallMap.visible and not $Main/PvPMap.visible
+	var single_map_clean: bool = $Main/HallMap.visible and not $Main/PvPMap.visible
 	for node in $Main/HallMap.find_children("*", "CollisionShape2D", true, false):
 		single_map_clean = single_map_clean and not (node as CollisionShape2D).disabled
 	for node in $Main/PvPMap.find_children("*", "CollisionShape2D", true, false):
@@ -39,24 +39,21 @@ func _ready() -> void:
 	var sword_pivot := player.get_node("Visual/SwordPivot") as Node2D
 	var sword_rest_angle := sword_pivot.rotation
 	player.call("_start_attack", 1)
-	await get_tree().create_timer(0.06).timeout
+	await get_tree().create_timer(0.06, true).timeout
 	var no_damage_during_windup := _total_health(enemy_parts) == enemy_total_before
-	await get_tree().create_timer(0.12).timeout
+	await get_tree().create_timer(0.12, true).timeout
 	var sword_animated := absf(sword_pivot.rotation - sword_rest_angle) > 0.03
 	var sword_hit_part := _total_health(enemy_parts) < enemy_total_before
-	await get_tree().create_timer(0.1).timeout
+	await get_tree().create_timer(0.1, true).timeout
 	var attack_has_recovery := player.is_attack_recovering()
 
+	player.call("_finish_attack")
+	var pixel_layer := player.get_node("Visual/PixelCharacter/Layer0") as Sprite2D
+	var idle_frame := pixel_layer.region_rect
 	player.velocity.x = 180.0
-	player.set("_animation_time", 0.7)
-	for index in range(8):
-		player.call("_animate_body_parts")
-	var animated_part_count := 0
-	for node in player_parts:
-		var part := node as BodyPart
-		if part.health > 0 and (absf(part.rotation) > 0.03 or part.position.distance_to(part.rest_position) > 0.5):
-			animated_part_count += 1
-	var parts_animated := animated_part_count >= 4
+	player.set("_walk_cycle", 2.0)
+	player.call("_animate_body_parts")
+	var parts_animated := pixel_layer.region_rect != idle_frame
 
 	var player_torso := _find_part(player_parts, "torso")
 	var player_torso_before := player_torso.health
@@ -70,8 +67,9 @@ func _ready() -> void:
 	var room_walls_cover_height := left_wall_shape.size.y >= 720.0 \
 		and right_wall_shape.size.y >= 720.0
 
-	enemy.position = Vector2(1100, 602)
-	await get_tree().create_timer(0.3).timeout
+	if is_instance_valid(enemy):
+		enemy.position = Vector2(1100, 602)
+	await get_tree().create_timer(0.3, true).timeout
 	var special_enemy_scene := load("res://scenes/enemies/training_dummy.tscn") as PackedScene
 	var air_enemy := special_enemy_scene.instantiate() as TrainingDummy
 	$Main.add_child(air_enemy)
@@ -80,12 +78,13 @@ func _ready() -> void:
 	await get_tree().physics_frame
 	var air_before := _total_health(air_enemy.get_node("Visual/Parts").get_children())
 	player.call("_start_attack", 1, 1)
-	await get_tree().create_timer(0.22).timeout
+	await get_tree().create_timer(0.22, true).timeout
 	var air_attack_worked := player.get_attack_kind() == 1 \
 		and _total_health(air_enemy.get_node("Visual/Parts").get_children()) < air_before
 
-	await get_tree().create_timer(0.35).timeout
-	air_enemy.position = Vector2(1100, 602)
+	await get_tree().create_timer(0.35, true).timeout
+	if is_instance_valid(air_enemy):
+		air_enemy.position = Vector2(1100, 602)
 	var dash_enemy := special_enemy_scene.instantiate() as TrainingDummy
 	$Main.add_child(dash_enemy)
 	dash_enemy.set_physics_process(false)
@@ -95,12 +94,13 @@ func _ready() -> void:
 	player.set("_dash_cooldown_timer", 0.0)
 	player.start_dash()
 	player.call("_start_attack", 1, 2)
-	await get_tree().create_timer(0.16).timeout
+	await get_tree().create_timer(0.16, true).timeout
 	var dash_attack_worked := player.get_attack_kind() == 2 \
 		and _total_health(dash_enemy.get_node("Visual/Parts").get_children()) < dash_before
 
-	await get_tree().create_timer(0.35).timeout
-	dash_enemy.position = Vector2(1100, 602)
+	await get_tree().create_timer(0.35, true).timeout
+	if is_instance_valid(dash_enemy):
+		dash_enemy.position = Vector2(1100, 602)
 	var low_enemy := special_enemy_scene.instantiate() as TrainingDummy
 	$Main.add_child(low_enemy)
 	low_enemy.set_physics_process(false)
@@ -112,13 +112,14 @@ func _ready() -> void:
 	var right_foot := _find_part(low_parts, "right_leg")
 	var feet_before := left_foot.health + right_foot.health
 	player.call("_start_attack", 1, 3)
-	await get_tree().create_timer(0.22).timeout
+	await get_tree().create_timer(0.22, true).timeout
 	var low_attack_worked := player.get_attack_kind() == 3 \
 		and _total_health(low_parts) < low_before \
 		and left_foot.health + right_foot.health < feet_before
 
-	await get_tree().create_timer(0.35).timeout
-	low_enemy.position = Vector2(1100, 602)
+	await get_tree().create_timer(0.35, true).timeout
+	if is_instance_valid(low_enemy):
+		low_enemy.position = Vector2(1100, 602)
 	var spell_enemy := special_enemy_scene.instantiate() as TrainingDummy
 	$Main.add_child(spell_enemy)
 	spell_enemy.set_physics_process(false)
@@ -127,12 +128,37 @@ func _ready() -> void:
 	var spell_before := _total_health(spell_enemy.get_node("Visual/Parts").get_children())
 	var mana_before := player.get_mana()
 	var spell_cast := player.cast_spell()
-	await get_tree().create_timer(0.35).timeout
-	var spell_worked := spell_cast and player.get_mana() == mana_before - player.spell_cost \
+	await get_tree().create_timer(0.35, true).timeout
+	var spell_worked := spell_cast and player.get_mana() < mana_before \
+		and player.get_mana() >= mana_before - player.spell_cost \
 		and _total_health(spell_enemy.get_node("Visual/Parts").get_children()) < spell_before
 	var mana_after_spell := player.get_mana()
-	await get_tree().create_timer(0.3).timeout
+	await get_tree().create_timer(0.3, true).timeout
 	var mana_regenerated := player.get_mana() > mana_after_spell
+	player.set("_spell_cooldown_timer", 0.0)
+	player.set("_mana", 100)
+	var charged_wave_cast := player.cast_charged_spell(1.0)
+	var charged_wave := _find_magic_bolt_tier(1)
+	var charged_wave_ok := charged_wave_cast and player.get_mana() == 20 \
+		and is_instance_valid(charged_wave) \
+		and charged_wave.damage == player.get_spell_damage() * 3 \
+		and charged_wave.scale.x > 2.0
+	var mana_during_cooldown := player.get_mana()
+	var cooldown_blocks_repeat := not player.cast_spell() \
+		and player.get_mana() == mana_during_cooldown \
+		and player.get_spell_cooldown_time() >= 0.99
+	if is_instance_valid(charged_wave):
+		charged_wave.queue_free()
+	player.set("_spell_cooldown_timer", 0.0)
+	player.set("_mana", 100)
+	var super_wave_cast := player.cast_charged_spell(3.0)
+	var super_wave := _find_magic_bolt_tier(2)
+	var super_wave_ok := super_wave_cast and player.get_mana() == 0 \
+		and is_instance_valid(super_wave) \
+		and super_wave.damage == player.get_spell_damage() * 5 \
+		and super_wave.scale.x > 3.0
+	if is_instance_valid(super_wave):
+		super_wave.queue_free()
 
 	var block_enemy := special_enemy_scene.instantiate() as TrainingDummy
 	$Main.add_child(block_enemy)
@@ -156,6 +182,10 @@ func _ready() -> void:
 		and block_enemy.get_attack_stun_time() == 0.0
 	player.set("_block_timer", 0.3)
 	player.set("_invincibility_timer", 0.0)
+	var projectile_before := block_torso.health
+	var projectile_connected := block_torso.receive_damage(5, block_enemy.global_position, "projectile")
+	var blocking_stops_projectiles := projectile_connected and block_torso.health == projectile_before
+	player.set("_invincibility_timer", 0.0)
 	var reduced_before := block_torso.health
 	block_torso.receive_damage(2, block_enemy.global_position)
 	var half_damage := block_torso.health == reduced_before - 1
@@ -177,7 +207,7 @@ func _ready() -> void:
 	player.call("_refresh_body_health")
 	player.call("heal_next_body_part")
 	var limb_regenerated_after_priority := player_arm.health == 1 \
-		and player_arm.visible and player.can_block() and shield.visible
+		and player_arm.visible and player.can_block() and not shield.visible
 	var regenerated_at_rest := player_arm.position.is_equal_approx(player_arm.rest_position) \
 		and is_zero_approx(player_arm.rotation)
 	player.set("health_regen_interval_msec", 50)
@@ -188,7 +218,7 @@ func _ready() -> void:
 	block_torso.health = maxi(block_torso.health - 1, 0)
 	player.call("_refresh_body_health")
 	player.call("_on_part_health_changed", block_torso)
-	await get_tree().create_timer(0.07).timeout
+	await get_tree().create_timer(0.07, true).timeout
 	var six_second_logic_works := block_torso.health == timed_regen_before
 	player.apply_upgrade("rapid_regeneration")
 	var rapid_regen_once := player.get_health_regen_interval_msec() == 3000 \
@@ -206,10 +236,10 @@ func _ready() -> void:
 	player.call("_begin_active_attack")
 	await get_tree().physics_frame
 	player.call("_damage_overlapping_enemies")
-	await get_tree().create_timer(0.15).timeout
+	await get_tree().create_timer(0.15, true).timeout
 	var bolt_destroyed_by_attack := not is_instance_valid(attackable_bolt)
 
-	print("Body parts test: map=%s base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s regen=%s perfect=%s magic_guard=%s half=%s cooldown=%s arm_break=%s heal_order=%s regrow=%s timed=%s rapid=%s bolt_cut=%s" % [
+	print("Body parts test: map=%s base=%s dots=%s animation=%s timing=%s iframe=%s walls=%s air=%s dash=%s low=%s spell=%s charged=%s super=%s spell_cd=%s regen=%s perfect=%s magic_guard=%s projectile_guard=%s half=%s cooldown=%s arm_break=%s heal_order=%s regrow=%s timed=%s rapid=%s bolt_cut=%s" % [
 		single_map_clean,
 		six_parts_created,
 		dots_centered,
@@ -221,9 +251,13 @@ func _ready() -> void:
 		dash_attack_worked,
 		low_attack_worked,
 		spell_worked,
+		charged_wave_ok,
+		super_wave_ok,
+		cooldown_blocks_repeat,
 		mana_regenerated,
 		perfect_blocked,
 		blocking_immune_to_magic,
+		blocking_stops_projectiles,
 		half_damage,
 		block_cooldown_started,
 		arm_break_disables_block,
@@ -234,14 +268,15 @@ func _ready() -> void:
 		bolt_destroyed_by_attack,
 	])
 
-	var passed := single_map_clean and six_parts_created and dots_centered \
+	var passed: bool = single_map_clean and six_parts_created and dots_centered \
 		and independent_health and destroyed_part_hidden \
 		and arm_debuff_applied and parts_animated and no_damage_during_windup \
 		and sword_hit_part and sword_animated and attack_has_recovery \
 		and dash_iframe_worked and room_walls_cover_height \
 		and air_attack_worked and dash_attack_worked \
-		and low_attack_worked and spell_worked and mana_regenerated \
-		and perfect_blocked and blocking_immune_to_magic \
+		and low_attack_worked and spell_worked and charged_wave_ok and super_wave_ok \
+		and cooldown_blocks_repeat and mana_regenerated \
+		and perfect_blocked and blocking_immune_to_magic and blocking_stops_projectiles \
 		and half_damage and block_cooldown_started \
 		and arm_break_disables_block and normal_heal_order \
 		and limb_regenerated_after_priority and regenerated_at_rest \
@@ -256,6 +291,14 @@ func _find_part(parts: Array[Node], id: StringName) -> BodyPart:
 		var part := node as BodyPart
 		if part.part_id == id:
 			return part
+	return null
+
+
+func _find_magic_bolt_tier(tier: int) -> MagicBolt:
+	for node in get_tree().get_nodes_in_group("magic_bolt"):
+		var bolt := node as MagicBolt
+		if is_instance_valid(bolt) and bolt.power_tier == tier:
+			return bolt
 	return null
 
 

@@ -29,7 +29,8 @@ func _ready() -> void:
 	var double_jump_only_once: bool = not "double_jump" in $Main.get("_offered_upgrades")
 	var rapid_regen_only_once: bool = not "rapid_regeneration" in $Main.get("_offered_upgrades")
 	var attack_button := $Main/UI/UpgradePanel/Margin/VBox/Choices/AttackButton as Button
-	$Main.set("_offered_upgrades", ["attack", "attack_speed", "part_health"])
+	var forced_upgrades: Array[String] = ["attack", "attack_speed", "part_health"]
+	$Main.set("_offered_upgrades", forced_upgrades)
 	attack_button.text = "攻击力\n\n+1 伤害"
 	attack_button.pressed.emit()
 	await get_tree().create_timer(0.8).timeout

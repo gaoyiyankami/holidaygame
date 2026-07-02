@@ -14,6 +14,7 @@ var _choice_submitted := false
 var _choice_wait := 0.0
 var _remote_state_seen := false
 var _remote_state_sequence := -1
+var _remote_walk_animation_seen := false
 var _appearance_synced := false
 var _knockback_seen := false
 
@@ -73,6 +74,12 @@ func _process(delta: float) -> void:
 			and remote_player.global_position.distance_to(Vector2(780, 610)) < 80.0:
 			_remote_state_seen = true
 			_remote_state_sequence = int(remote_player.get("_last_received_state_sequence"))
+			var pixel_frame: Vector2i = remote_player.get("_pixel_frame")
+			_remote_walk_animation_seen = _remote_walk_animation_seen or (
+				bool(remote_player.get("_network_target_grounded"))
+				and absf(remote_player.velocity.x) > 18.0
+				and pixel_frame.y in [1, 2]
+			)
 			_appearance_synced = remote_player.get_character_appearance_seed() != 0
 	if not _remote_state_seen:
 		return
@@ -107,8 +114,9 @@ func _process(delta: float) -> void:
 		if not upgraded and _choice_wait < 3.0:
 			return
 		var relay_fast := _remote_state_sequence >= 20
-		print("E2E ATTACKER RESULT relay=%s appearance=%s seq=%d kills=%d upgraded=%s count=%d damage=%d" % [
+		print("E2E ATTACKER RESULT relay=%s walk=%s appearance=%s seq=%d kills=%d upgraded=%s count=%d damage=%d" % [
 			_remote_state_seen,
+			_remote_walk_animation_seen,
 			_appearance_synced,
 			_remote_state_sequence,
 			kills,
@@ -116,7 +124,10 @@ func _process(delta: float) -> void:
 			local_player.get_applied_upgrade_count(),
 			local_player.attack_damage,
 		])
-		get_tree().quit(0 if upgraded and relay_fast and _appearance_synced else 1)
+		get_tree().quit(
+			0 if upgraded and relay_fast and _remote_walk_animation_seen \
+			and _appearance_synced else 1
+		)
 
 
 func _on_connected() -> void:

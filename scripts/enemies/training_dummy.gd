@@ -11,7 +11,13 @@ enum State {
 	RECOVERY,
 	HURT,
 	DEAD,
+	TURN,
+	JUMP_WINDUP,
+	JUMP,
+	JUMP_RECOVERY,
 }
+
+const ONE_WAY_PLATFORM_LAYER := 1 << 5
 
 @export var max_health: int = 3
 @export var knockback_speed: float = 340.0
@@ -19,15 +25,25 @@ enum State {
 @export var move_speed: float = 105.0
 @export var chase_range: float = 520.0
 @export var attack_range: float = 76.0
+@export var turn_duration: float = 0.18
 @export_category("Attack")
 @export var attack_damage: int = 3
 @export var attack_windup: float = 0.28
 @export var attack_duration: float = 0.16
 @export var attack_cooldown: float = 1.0
+@export var variant_attack_windup: float = 0.42
+@export var variant_attack_duration: float = 0.24
+@export_category("Jump")
+@export var jump_windup: float = 0.22
+@export var jump_duration: float = 0.34
+@export var jump_recovery: float = 0.22
+@export var jump_speed: float = 230.0
+@export var jump_lift: float = -740.0
 @export var hurt_duration: float = 0.2
 
 var _health: int
 var _gravity: float = 1600.0
+var _platform_nav := PlatformChaseAgent.new()
 var _target: Player
 var _state: State = State.IDLE
 var _state_timer: float = 0.0
@@ -39,6 +55,10 @@ var _attack_speed_multiplier: float = 1.0
 var _animation_time: float = 0.0
 var _movement_stun_timer: float = 0.0
 var _attack_stun_timer: float = 0.0
+var _facing_direction: float = 1.0
+var _queued_turn_direction: float = 1.0
+var _attack_variant: int = 0
+var _jump_direction: float = 1.0
 
 @onready var _visual: Node2D = $Visual
 @onready var _parts_root: Node2D = $Visual/Parts
@@ -48,6 +68,8 @@ var _attack_stun_timer: float = 0.0
 
 
 func _ready() -> void:
+	add_to_group("enemy")
+	collision_mask |= ONE_WAY_PLATFORM_LAYER
 	_create_body_parts()
 	_gravity = float(ProjectSettings.get_setting("physics/2d/default_gravity", 1600.0))
 	_target = get_tree().get_first_node_in_group("player") as Player
@@ -55,6 +77,7 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_platform_nav.tick(self, delta)
 	_animation_time += delta
 	_movement_stun_timer = maxf(_movement_stun_timer - delta, 0.0)
 	_attack_stun_timer = maxf(_attack_stun_timer - delta, 0.0)
@@ -78,21 +101,31 @@ func _update_state(delta: float) -> void:
 		velocity.x = move_toward(velocity.x, 0.0, 900.0 * delta)
 		return
 
-	var direction := _face_target()
+	var direction := _target_direction()
 	match _state:
 		State.IDLE:
 			velocity.x = move_toward(velocity.x, 0.0, 900.0 * delta)
-			if _can_attack():
+			if _needs_turn(direction):
+				_start_turn(direction)
+			elif _can_attack():
 				_change_state(State.WINDUP)
+			elif _can_jump():
+				_change_state(State.JUMP_WINDUP)
 			elif global_position.distance_to(_target.global_position) <= chase_range:
 				_change_state(State.CHASE)
 		State.CHASE:
-			if _can_attack():
+			direction = _platform_nav.steer(self, _target, delta, direction, move_speed * _movement_multiplier)
+			if _needs_turn(direction):
+				_start_turn(direction)
+			elif _can_attack():
 				_change_state(State.WINDUP)
+			elif _can_jump():
+				_change_state(State.JUMP_WINDUP)
 			elif global_position.distance_to(_target.global_position) > chase_range:
 				_change_state(State.IDLE)
 			else:
-				velocity.x = direction * move_speed * _movement_multiplier
+				velocity.x = direction * move_speed * _movement_multiplier \
+					+ _platform_nav.separation(self) * move_speed * 0.45
 		State.WINDUP:
 			_stop_horizontal(delta)
 			_tick_timed_state(delta, State.ATTACK)
@@ -106,47 +139,110 @@ func _update_state(delta: float) -> void:
 		State.HURT:
 			velocity.x = move_toward(velocity.x, 0.0, 520.0 * delta)
 			_tick_timed_state(delta, State.IDLE)
+		State.TURN:
+			_stop_horizontal(delta)
+			_tick_timed_state(delta, State.IDLE)
+		State.JUMP_WINDUP:
+			_stop_horizontal(delta)
+			_tick_timed_state(delta, State.JUMP)
+		State.JUMP:
+			velocity.x = _jump_direction * jump_speed * _movement_multiplier
+			_tick_timed_state(delta, State.JUMP_RECOVERY)
+		State.JUMP_RECOVERY:
+			_stop_horizontal(delta)
+			_tick_timed_state(delta, State.IDLE)
 
 
 func _change_state(next_state: State) -> void:
 	_state = next_state
 	_attack_visual.visible = false
+	if _state != State.ATTACK:
+		_attack_area.scale = Vector2.ONE
+		_attack_area.position = Vector2(44, 0)
 	_set_parts_tint(Color.WHITE)
 
 	match _state:
 		State.WINDUP:
-			_state_timer = attack_windup / _attack_speed_multiplier
+			_attack_variant = _choose_attack_variant()
+			_attack_visual.visible = true
+			_attack_visual.color = Color(1.0, 0.12, 0.06, 0.32)
+			_attack_visual.scale = Vector2(1.4, 1.3)
+			SFX.play_at("enemy_windup", global_position, 0.06)
+			_state_timer = (variant_attack_windup if _attack_variant == 1 else attack_windup) / _attack_speed_multiplier
 			_set_parts_tint(Color(1.0, 0.72, 0.25, 1.0))
 		State.ATTACK:
-			_state_timer = attack_duration / _attack_speed_multiplier
+			_state_timer = (variant_attack_duration if _attack_variant == 1 else attack_duration) / _attack_speed_multiplier
 			_attack_has_hit = false
+			_attack_area.scale = Vector2(1.35, 1.15) if _attack_variant == 1 else Vector2.ONE
+			_attack_area.position = Vector2(52, -4) if _attack_variant == 1 else Vector2(44, 0)
 			_attack_visual.visible = true
+			SFX.play_at("enemy_melee", global_position, 0.07)
+			_attack_visual.color = Color(1.0, 0.62, 0.12, 0.72) if _attack_variant == 1 else Color(1.0, 0.28, 0.16, 0.75)
 			_try_damage_player()
 		State.RECOVERY:
+			_attack_area.scale = Vector2.ONE
+			_attack_area.position = Vector2(44, 0)
 			_state_timer = attack_cooldown / _attack_speed_multiplier
 			_set_parts_tint(Color(0.72, 0.72, 0.72, 1.0))
 		State.HURT:
 			_state_timer = hurt_duration
 		State.DEAD:
 			_state_timer = 0.0
+		State.TURN:
+			_state_timer = turn_duration
+			_set_parts_tint(Color(0.72, 0.82, 1.0, 1.0))
+		State.JUMP_WINDUP:
+			_state_timer = jump_windup
+			_jump_direction = _target_direction()
+			if is_zero_approx(_jump_direction):
+				_jump_direction = _facing_direction
+			_set_parts_tint(Color(0.55, 0.95, 1.0, 1.0))
+		State.JUMP:
+			_state_timer = jump_duration
+			velocity.x = _jump_direction * jump_speed * _movement_multiplier
+			velocity.y = jump_lift
+		State.JUMP_RECOVERY:
+			_state_timer = jump_recovery
+			_set_parts_tint(Color(0.65, 0.75, 0.82, 1.0))
 
 
 func _tick_timed_state(delta: float, next_state: State) -> void:
 	_state_timer = maxf(_state_timer - delta, 0.0)
 	if _state_timer <= 0.0:
+		if _state == State.TURN:
+			_facing_direction = _queued_turn_direction
+			_visual.scale.x = _facing_direction
 		_change_state(next_state)
 
 
-func _face_target() -> float:
+func _target_direction() -> float:
 	var direction := signf(_target.global_position.x - global_position.x)
-	if not is_zero_approx(direction) and _state not in [State.HURT, State.DEAD]:
-		_visual.scale.x = direction
 	return direction
+
+
+func _needs_turn(direction: float) -> bool:
+	return not is_zero_approx(direction) and signf(direction) != signf(_facing_direction)
+
+
+func _start_turn(direction: float) -> void:
+	_queued_turn_direction = signf(direction)
+	_change_state(State.TURN)
+
+
+func _choose_attack_variant() -> int:
+	return 1 if absf(global_position.x - _target.global_position.x) > attack_range * 0.62 and randi() % 3 == 0 else 0
 
 
 func _can_attack() -> bool:
 	return absf(global_position.x - _target.global_position.x) <= attack_range \
 		and absf(global_position.y - _target.global_position.y) < 80.0
+
+
+func _can_jump() -> bool:
+	return is_on_floor() \
+		and _target.global_position.y < global_position.y - 54.0 \
+		and absf(_target.global_position.x - global_position.x) <= 280.0 \
+		and global_position.distance_to(_target.global_position) <= chase_range
 
 
 func _stop_horizontal(delta: float) -> void:
@@ -176,6 +272,8 @@ func _try_damage_player() -> void:
 			_attack_has_hit = true
 			return
 		var damage := maxi(1, roundi(attack_damage * _attack_multiplier))
+		if _attack_variant == 1:
+			damage = maxi(1, roundi(float(damage) * 1.25))
 		if closest_part.receive_damage(damage, global_position):
 			_attack_has_hit = true
 
@@ -276,6 +374,7 @@ func _update_health_label() -> void:
 
 func _die() -> void:
 	_change_state(State.DEAD)
+	SFX.play_at("enemy_death", global_position, 0.07)
 	collision_layer = 0
 	collision_mask = 0
 	_health_label.text = "击败！"
@@ -349,11 +448,17 @@ func _animate_body_parts() -> void:
 	_animate_part("right_arm", Vector2(-step * 1.7, step * 0.8), 0.0)
 
 	if _state == State.WINDUP:
-		_animate_part("right_arm", Vector2(-4, -4), 0.0)
+		_animate_part("right_arm", Vector2(-6 if _attack_variant == 1 else -4, -6), -0.25)
 	elif _state == State.ATTACK:
-		_animate_part("right_arm", Vector2(6, 1), 0.0)
+		_animate_part("right_arm", Vector2(10 if _attack_variant == 1 else 6, 1), 0.22 if _attack_variant == 1 else 0.0)
 	elif _state == State.RECOVERY:
 		_animate_part("right_arm", Vector2(2, 0), 0.0)
+	elif _state == State.TURN:
+		_animate_part("torso", Vector2(0, 0), 0.18 * _queued_turn_direction)
+	elif _state == State.JUMP_WINDUP:
+		_animate_part("torso", Vector2(0, 4), -0.12)
+	elif _state == State.JUMP:
+		_animate_part("torso", Vector2(0, -3), 0.12 * _jump_direction)
 
 
 func _animate_part(id: StringName, offset: Vector2, angle: float) -> void:

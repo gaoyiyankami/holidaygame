@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" path="res://scenes/enemies/training_dummy.tscn" id="2_enemy"]
@@ -73,6 +73,18 @@ corner_radius_top_left = 16
 corner_radius_top_right = 16
 corner_radius_bottom_right = 16
 corner_radius_bottom_left = 16
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_modal"]
+bg_color = Color(0.025, 0.035, 0.055, 0.98)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.3, 0.6, 0.76, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
 
 [node name="Main" type="Node2D"]
 process_mode = 3
@@ -290,7 +302,7 @@ offset_bottom = 160.0
 theme_override_styles/panel = SubResource("StyleBox_panel")
 
 [node name="Label" type="Label" parent="UI/HelpPanel"]
-text = "移动：A / D 或方向键\n跳跃：空格 / W / ↑\n攻击：J / 鼠标左键（S/↓+攻击为下段）\n冲刺：K / Shift    法术：L\n返回主菜单：Esc"
+text = "移动：A / D 或方向键\n跳跃：空格 / W / ↑\n攻击：J / 鼠标左键（S/↓+攻击为下段）\n冲刺：K / Shift    法术：L\n暂停菜单：Esc"
 theme_override_colors/font_color = Color(0.92, 0.96, 1, 1)
 theme_override_font_sizes/font_size = 20
 
@@ -506,12 +518,17 @@ custom_minimum_size = Vector2(0, 70)
 text = "设置"
 theme_override_font_sizes/font_size = 24
 
+[node name="QuitButton" type="Button" parent="UI/StartMenu/Margin/VBox"]
+custom_minimum_size = Vector2(0, 50)
+text = "退出游戏"
+theme_override_font_sizes/font_size = 19
+
 [node name="SettingsPanel" type="PanelContainer" parent="UI"]
 visible = false
 offset_left = 365.0
-offset_top = 120.0
+offset_top = 55.0
 offset_right = 915.0
-offset_bottom = 600.0
+offset_bottom = 665.0
 theme_override_styles/panel = SubResource("StyleBox_upgrade")
 
 [node name="Margin" type="MarginContainer" parent="UI/SettingsPanel"]
@@ -521,10 +538,10 @@ theme_override_constants/margin_right = 45
 theme_override_constants/margin_bottom = 35
 
 [node name="VBox" type="VBoxContainer" parent="UI/SettingsPanel/Margin"]
-theme_override_constants/separation = 24
+theme_override_constants/separation = 14
 
 [node name="Title" type="Label" parent="UI/SettingsPanel/Margin/VBox"]
-text = "显示设置"
+text = "游戏设置"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 32
 
@@ -548,6 +565,46 @@ custom_minimum_size = Vector2(110, 50)
 size_flags_horizontal = 3
 custom_minimum_size = Vector2(0, 50)
 
+[node name="MasterVolumeRow" type="HBoxContainer" parent="UI/SettingsPanel/Margin/VBox"]
+
+[node name="Label" type="Label" parent="UI/SettingsPanel/Margin/VBox/MasterVolumeRow"]
+text = "主音量"
+custom_minimum_size = Vector2(110, 44)
+
+[node name="Slider" type="HSlider" parent="UI/SettingsPanel/Margin/VBox/MasterVolumeRow"]
+size_flags_horizontal = 3
+min_value = 0.0
+max_value = 100.0
+step = 1.0
+value = 85.0
+
+[node name="Value" type="Label" parent="UI/SettingsPanel/Margin/VBox/MasterVolumeRow"]
+text = "85%"
+custom_minimum_size = Vector2(58, 44)
+horizontal_alignment = 2
+
+[node name="SfxVolumeRow" type="HBoxContainer" parent="UI/SettingsPanel/Margin/VBox"]
+
+[node name="Label" type="Label" parent="UI/SettingsPanel/Margin/VBox/SfxVolumeRow"]
+text = "音效音量"
+custom_minimum_size = Vector2(110, 44)
+
+[node name="Slider" type="HSlider" parent="UI/SettingsPanel/Margin/VBox/SfxVolumeRow"]
+size_flags_horizontal = 3
+min_value = 0.0
+max_value = 100.0
+step = 1.0
+value = 85.0
+
+[node name="Value" type="Label" parent="UI/SettingsPanel/Margin/VBox/SfxVolumeRow"]
+text = "85%"
+custom_minimum_size = Vector2(58, 44)
+horizontal_alignment = 2
+
+[node name="MuteToggle" type="CheckButton" parent="UI/SettingsPanel/Margin/VBox"]
+text = "静音"
+custom_minimum_size = Vector2(0, 44)
+
 [node name="Status" type="Label" parent="UI/SettingsPanel/Margin/VBox"]
 text = "刷新率选项会设置游戏帧率上限\n编辑器内嵌运行时窗口尺寸可能不会变化"
 horizontal_alignment = 1
@@ -559,6 +616,174 @@ text = "应用设置"
 [node name="BackButton" type="Button" parent="UI/SettingsPanel/Margin/VBox"]
 custom_minimum_size = Vector2(0, 55)
 text = "返回主菜单"
+
+[node name="PauseOverlay" type="Control" parent="UI"]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+
+[node name="Shade" type="ColorRect" parent="UI/PauseOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.005, 0.008, 0.015, 0.76)
+
+[node name="Panel" type="PanelContainer" parent="UI/PauseOverlay"]
+offset_left = 430.0
+offset_top = 80.0
+offset_right = 850.0
+offset_bottom = 640.0
+theme_override_styles/panel = SubResource("StyleBox_modal")
+
+[node name="Margin" type="MarginContainer" parent="UI/PauseOverlay/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 42
+theme_override_constants/margin_top = 32
+theme_override_constants/margin_right = 42
+theme_override_constants/margin_bottom = 32
+
+[node name="VBox" type="VBoxContainer" parent="UI/PauseOverlay/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="UI/PauseOverlay/Panel/Margin/VBox"]
+layout_mode = 2
+text = "游戏暂停"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.78, 0.92, 1, 1)
+theme_override_font_sizes/font_size = 34
+
+[node name="Context" type="Label" parent="UI/PauseOverlay/Panel/Margin/VBox"]
+layout_mode = 2
+text = "当前战斗已暂停"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.65, 0.72, 0.8, 1)
+theme_override_font_sizes/font_size = 17
+
+[node name="ResumeButton" type="Button" parent="UI/PauseOverlay/Panel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 58)
+layout_mode = 2
+text = "继续游戏"
+theme_override_font_sizes/font_size = 22
+
+[node name="SettingsButton" type="Button" parent="UI/PauseOverlay/Panel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+text = "设置"
+theme_override_font_sizes/font_size = 20
+
+[node name="RestartButton" type="Button" parent="UI/PauseOverlay/Panel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+text = "重新挑战"
+theme_override_font_sizes/font_size = 20
+
+[node name="MenuButton" type="Button" parent="UI/PauseOverlay/Panel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+text = "返回标题画面"
+theme_override_font_sizes/font_size = 20
+
+[node name="QuitButton" type="Button" parent="UI/PauseOverlay/Panel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 46)
+layout_mode = 2
+text = "退出游戏"
+theme_override_font_sizes/font_size = 18
+
+[node name="ResultOverlay" type="Control" parent="UI"]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+
+[node name="Shade" type="ColorRect" parent="UI/ResultOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.005, 0.008, 0.015, 0.82)
+
+[node name="Panel" type="PanelContainer" parent="UI/ResultOverlay"]
+offset_left = 365.0
+offset_top = 90.0
+offset_right = 915.0
+offset_bottom = 630.0
+theme_override_styles/panel = SubResource("StyleBox_modal")
+
+[node name="Margin" type="MarginContainer" parent="UI/ResultOverlay/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 50
+theme_override_constants/margin_top = 36
+theme_override_constants/margin_right = 50
+theme_override_constants/margin_bottom = 36
+
+[node name="VBox" type="VBoxContainer" parent="UI/ResultOverlay/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 15
+
+[node name="Title" type="Label" parent="UI/ResultOverlay/Panel/Margin/VBox"]
+layout_mode = 2
+text = "挑战结束"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(1, 0.79, 0.32, 1)
+theme_override_font_sizes/font_size = 38
+
+[node name="Subtitle" type="Label" parent="UI/ResultOverlay/Panel/Margin/VBox"]
+layout_mode = 2
+text = "整顿装备，再次出发"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.72, 0.8, 0.88, 1)
+theme_override_font_sizes/font_size = 19
+
+[node name="Summary" type="Label" parent="UI/ResultOverlay/Panel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 145)
+layout_mode = 2
+text = "模式  单人挑战\n到达波次  1\n击败敌人  0\n用时  00:00"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.9, 0.94, 1, 1)
+theme_override_font_sizes/font_size = 22
+
+[node name="Record" type="Label" parent="UI/ResultOverlay/Panel/Margin/VBox"]
+layout_mode = 2
+text = "最佳记录已保存"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.48, 0.82, 0.94, 1)
+theme_override_font_sizes/font_size = 17
+
+[node name="RetryButton" type="Button" parent="UI/ResultOverlay/Panel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 58)
+layout_mode = 2
+text = "再次挑战"
+theme_override_font_sizes/font_size = 22
+
+[node name="MenuButton" type="Button" parent="UI/ResultOverlay/Panel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+text = "返回标题画面"
+theme_override_font_sizes/font_size = 19
+
+[node name="QuitButton" type="Button" parent="UI/ResultOverlay/Panel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "退出游戏"
+theme_override_font_sizes/font_size = 17
 
 [node name="StatusLabel" type="Label" parent="UI"]
 visible = false
@@ -574,9 +799,9 @@ theme_override_font_sizes/font_size = 30
 [node name="UpgradePanel" type="PanelContainer" parent="UI"]
 visible = false
 offset_left = 235.0
-offset_top = 185.0
+offset_top = 135.0
 offset_right = 1045.0
-offset_bottom = 545.0
+offset_bottom = 625.0
 theme_override_styles/panel = SubResource("StyleBox_upgrade")
 
 [node name="Margin" type="MarginContainer" parent="UI/UpgradePanel"]
@@ -624,3 +849,16 @@ text = "随机强化
 
 每次显示三项"
 theme_override_font_sizes/font_size = 22
+
+[node name="ShopGoldLabel" type="Label" parent="UI/UpgradePanel/Margin/VBox"]
+visible = false
+text = "竞技场金币  0"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(1, 0.82, 0.28, 1)
+theme_override_font_sizes/font_size = 22
+
+[node name="ShopContinueButton" type="Button" parent="UI/UpgradePanel/Margin/VBox"]
+visible = false
+custom_minimum_size = Vector2(0, 52)
+text = "结束休整，进入下一波"
+theme_override_font_sizes/font_size = 20
